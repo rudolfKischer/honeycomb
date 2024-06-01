@@ -14,9 +14,10 @@ void main()
     // gamma correction
     vec3 col = pow(pixelColor.rgb, vec3(1.0/2.2));
     FragColor = vec4(col, 1.0);
+    // FragColor = pixelColor;
 
 
-    return;
+    // return;
 
 
 

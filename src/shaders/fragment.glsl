@@ -1,11 +1,21 @@
 #version 330 core
+
+#define MAX_SPHERES 20
+const int sphereDatum = 13;
 out vec4 FragColor;
+in vec2 TexCoord;
 uniform sampler2D prevFrame;
+uniform sampler2D bgTexture;
+uniform int bgWidth;
+uniform int bgHeight;
 uniform int timePassed;
 uniform int texWidth;
 uniform int texHeight;
 uniform int numSpheres;
 uniform bool camMoved;
+uniform vec3 camPos;
+uniform vec3 camFront;
+uniform float spheredata[ MAX_SPHERES * sphereDatum ];
 uniform float seed1;
 uniform float uTime;
 // uniform sampler2D noiseTexture1;
@@ -27,11 +37,8 @@ struct Ray {
 const int RAY_BOUNCE_LIMIT =10;
 const int RAY_SAMPLES = 1;
 float gSeed = 0.0;
-const int sphereDatum = 13;
-#define MAX_SPHERES 20
 Sphere spheres[MAX_SPHERES];
-uniform float spheredata[ MAX_SPHERES * sphereDatum ];
-uniform vec3 camPos;
+
 
 const float epsilon = 0.05;
 const float PI = 3.14159265359;
@@ -178,18 +185,39 @@ vec3 brdfmicrofacet(vec3 l, vec3 v, in vec3 n, in vec3 albedo, in float metallic
 
 }
 
+vec2 scaleToFitTexCoords(int width, int height) {
+    vec2 screenCoords = gl_FragCoord.xy / vec2(texWidth, texHeight);
+    vec2 corrected;
+
+    float textureAspect = float(width) / float(height);
+    float screenAspect = float(texWidth) / float(texHeight);
+
+    if (textureAspect > screenAspect) {
+        float scale = screenAspect / textureAspect;
+        corrected = vec2(screenCoords.x, screenCoords.y * scale + (1.0 - scale) * 0.5);
+    } else {
+        float scale = textureAspect / screenAspect;
+        corrected = vec2(screenCoords.x * scale + (1.0 - scale) * 0.5, screenCoords.y);
+    }
+
+    corrected.y = 1.0 - corrected.y;
+
+    return corrected;
+}
+
 
 
 void main()
 {   
     vec2 uv = (gl_FragCoord.xy - 0.5 * vec2(texWidth, texHeight)) / texHeight;
     vec4 prevPixelColor = texture(prevFrame, uv - 0.5);
-    // if (timePassed >500) {
-    //     FragColor = prevPixelColor;
-    //     return;
-    // }
 
-    // to test, texture, just return the texture color
+    // output the background texture as a test
+    // vec2 bguv = (gl_FragCoord.xy - 0.5 * vec2(bgWidth, bgHeight)) / bgHeight;
+    // bguv.y = -bguv.y;
+    // FragColor = texture(bgTexture, scaleToFitTexCoords(bgWidth, bgHeight));
+    // return;
+
     gSeed = float(baseHash(floatBitsToUint(gl_FragCoord.xy))) / float(0xffffffffU) + uTime + seed1 * uTime;
 
     for (int i = 0; i < numSpheres; ++i) {
@@ -204,10 +232,16 @@ void main()
 
     // Create ray from camera to pixel
 
+    vec3 camUp = vec3(0.0, 1.0, 0.0);
+    vec3 camRight = normalize(cross(camFront, camUp));
+
   
     
+    // make sure to include camFront direction
+    vec3 startRay = normalize(vec3(uv.x * viewportWidth * camRight + uv.y * viewportHeight * camUp + focalLength * camFront));
 
-    vec3 startRay = normalize(vec3(uv.x * viewportWidth, uv.y * viewportHeight, -focalLength));
+
+
 
 
     vec4 pixelColor = vec4(0.0, 0.0, 0.0, 1.0);
@@ -221,7 +255,7 @@ void main()
         T = vec3(1.0);
         L = vec3(0.0);
         ray.origin = camPos ;
-        ray.direction = startRay + randomInUnitSphere(gSeed) * 0.0005;
+        ray.direction = startRay ;//+ randomInUnitSphere(gSeed) * 0.0005;
         int prevSphere = -1;
 
         for (int i = 0; i < RAY_BOUNCE_LIMIT; ++i) {
@@ -232,7 +266,13 @@ void main()
           trace(ray, minT, closestIndex, prevSphere);
 
           if (closestIndex == -1) {
-              vec3 backgroundColor = vec3(1.0, 1.0, 1.0);
+              // vec3 backgroundColor = vec3(1.0, 1.0, 1.0);
+
+              // sample with spherical coordinates
+              vec3 dir = normalize(ray.direction);
+              float phi = atan(dir.z, dir.x);
+              float theta = acos(dir.y);
+              vec3 backgroundColor = texture(bgTexture, vec2((phi + PI) / (2.0 * PI), theta / PI)).xyz;
               L += T * backgroundColor;// * max(dot(ray.direction, lightDir), 0.0);
               break;
           }
@@ -272,7 +312,7 @@ void main()
           float air = 1.0;
           float glass = 1.4;
           float R_0 = pow((air - glass) / (air + glass), 2);
-          float R = R_0 + (1 - R_0) * pow(1 - dot(-ray.direction, normal), 3);
+          float R = R_0 + (1 - R_0) * pow(1 - dot(-ray.direction, normal), 3.0);
 
           // FragColor = vec4(vec3(R), 1.0);
           // return;
@@ -285,22 +325,26 @@ void main()
           outDirection = normalize(randomInUnitSphere(gSeed) * (1.0 - R) * roughness + dialectricReflection + metalReflection);
 
           float transmit = hash1(gSeed);
-          if (transmit < opacity) {
-              float ior = 4.4;
+          if (opacity > 0.0) {
+              float ior = 1.4;
 
               // light should get bent towards the normal
 
               
 
               float reflect = hash1(gSeed);
+              vec3 randDir = randomInUnitSphere(gSeed);
               if (reflect < R) {
-                  outDirection = reflection;
+                  if (dot(randDir, normal) > 0.0) {
+                      randDir = -randDir;
+                  }
+                  outDirection = reflection + randDir * roughness;
               } else {
-                outDirection = refract(inDirection, normal, 1.0 / ior);
+                  if (dot(randDir, normal) < 0.0) {
+                      randDir = -randDir;
+                  }
+                  outDirection = refract(inDirection, normal, 1.0 / ior) + randDir * roughness;
               }
-
-
-
           } 
 
 
@@ -322,8 +366,9 @@ void main()
               // spheres[closestIndex].orm.z, 
               // spheres[closestIndex].orm.y, 
               // 1.00);
+              T = T * closestColor;
           }
-          T = T * closestColor;
+          
 
 
         }
