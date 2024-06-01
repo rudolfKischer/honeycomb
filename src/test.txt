@@ -1,0 +1,469 @@
+
+// Opengl is a specification for handling graphics. this makes it portable, but also means that the specfic 
+// for the hardware and the os, and those writing the drivers, supply the functions for the appication
+// However, this means that each driver is going to have the functions sitting somewhere different
+// to make it more convenient, instead of manually needing to connect opengl to the driver software
+// glad handles this
+#include <glad/glad.h>
+
+// GLFW is a window manager. It has functionality for interacting with IO for the OS and resizing and some other 
+// event based window management stuff
+#include <GLFW/glfw3.h>
+
+
+//Glad is specific to th version of opengl, and the language, and needs to be downloaded for the specific version
+//glfw can often be installed with a package manager
+
+//in order to use a library it requires two things,
+// 1. a set of header files, which are declarations of variables , functions and the such, but without the code
+// this tells the compiler what exists, and what shape it takes
+// 2. the code itself. This can come in a couple forms. 
+// the code can either be source code, which will get compiled , and can be included with the program binary
+// the code may be provided as precompiled binaries. These of called dynamicly linked libraries, because the 
+// code will reach out to them at run time, and the compiler never process them
+// the dynamicly linked libraries can be useful, to prevent having to recompile, or if the libarary is used by many other
+// programs
+
+// this is the IO steam
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+
+//the comiler reads top to bottom, so it needs to have references to things before we use them
+// sometimes we want to put code we use early, later on to improve readibility
+// in this case we make function declatations as we have here
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void processInput(GLFWwindow *window);
+
+// Declare the shader creation function
+unsigned int createShaderProgram(const char* vertexShaderSource, const char* fragmentShaderSource);
+
+// Declare the initialization functions
+GLFWwindow* init_window();
+void init_verts(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO);
+void initialize_canvas(unsigned int &framebuffer, unsigned int &canvasBuffer);
+
+// Declare the rendering functions
+void renderCanvas(unsigned int shaderProgram, unsigned int VAO, int frameCount, unsigned int framebuffer);
+void renderScreen(unsigned int screenShaderProgram, unsigned int VAO, unsigned int canvasBuffer, GLFWwindow* window);
+
+// Declare the cleanup functions
+void cleanupBuffers(unsigned int VAO, unsigned int VBO, unsigned int EBO);
+void cleanupPrograms(unsigned int shaderProgram, unsigned int screenShaderProgram);
+void cleanupFramebuffers(unsigned int framebuffer, unsigned int canvasBuffer);
+
+// declare the function to load shader source
+std::string loadShaderSource(const char* filePath);
+
+
+// settings
+const unsigned int SCR_WIDTH = 1920;
+const unsigned int SCR_HEIGHT = 1080;
+const unsigned int TEX_WIDTH = 120;
+const unsigned int TEX_HEIGHT = 120;
+
+int main()
+{
+    const std::string shaderDirPathAbs = "/Users/rudolfkischer/Projects/honeycomb/src/shaders";
+
+    std::string vertexShaderSrc = loadShaderSource((shaderDirPathAbs + "/vertex.glsl").c_str());
+    std::string fragmentShaderSrc = loadShaderSource((shaderDirPathAbs + "/fragment.glsl").c_str());
+    std::string screenVertexShaderSrc = loadShaderSource((shaderDirPathAbs + "/screenVertex.glsl").c_str());
+    std::string screenFragmentShaderSrc = loadShaderSource((shaderDirPathAbs + "/screenFragment.glsl").c_str());
+
+    const char* vertexShaderSource = vertexShaderSrc.c_str();
+    const char* fragmentShaderSource = fragmentShaderSrc.c_str();
+    const char* screenVertexShaderSource = screenVertexShaderSrc.c_str();
+    const char* screenFragmentShaderSource = screenFragmentShaderSrc.c_str();
+
+    // Initialize window
+    GLFWwindow* window = init_window();
+    
+    // Initialize GLAD
+    // this is telling glad to use glfws function for loading pointers
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    {
+        std::cout << "Failed to initialize GLAD" << std::endl;
+        return -1;
+    }
+
+    // Build and compile shader program
+    unsigned int shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
+    unsigned int screenShaderProgram = createShaderProgram(screenVertexShaderSource, screenFragmentShaderSource);
+
+    // Define vertices for your full-screen quad (including texture coordinates)
+
+    // Setup buffer objects
+    // these ints act as IDs /addresses in the opengl system 
+    // VBO: this is a buffer object, that stores all the actual vertex data (coordinates, normals, texture coordinates, colors etc)
+    // VAO: this is a map, describing what the VBOs look like, and how big each vertex is, and the addresses to each vertex
+    // EBO: this stores the indexes, for each triangle, that point to the corresponding vertices
+    unsigned int VBO, VAO, EBO;
+
+    init_verts(VAO, VBO, EBO);
+    // Framebuffer configuration
+    unsigned int framebuffer, canvasBuffer;
+    //initialize the canvas
+    initialize_canvas(framebuffer, canvasBuffer);
+
+    // Time control for pixel lighting
+    double lastTime = glfwGetTime();
+    int nbFrames = 0;
+
+    int frameCount = 0;
+
+    // Render loop
+    while (!glfwWindowShouldClose(window))
+    {
+        // Measure speed
+        double currentTime = glfwGetTime();
+        nbFrames++;
+        if (currentTime - lastTime >= 1.0) { // If last print was more than 1 sec ago
+            std::cout << nbFrames << " FPS" << std::endl;
+            nbFrames = 0;
+            lastTime += 1.0;
+        }
+
+        frameCount++;
+
+        // render to canvas
+        renderCanvas(shaderProgram, VAO, frameCount, framebuffer);
+
+        // Render to screen
+        renderScreen(screenShaderProgram, VAO, canvasBuffer, window);
+
+        //gl flush tells opengl to execute all the commands
+        // opengl wont execute the commands until it has a full buffer
+        // or untill it is told to swap buffers
+        glFlush();
+        
+        // //opengl has a double buffer by default, so we need to swap the buffers
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    // Cleanup
+    // here we free the resources we allocate
+    cleanupBuffers(VAO, VBO, EBO);
+    cleanupPrograms(shaderProgram, screenShaderProgram);
+    cleanupFramebuffers(framebuffer, canvasBuffer);
+
+    glfwTerminate();
+    return 0;
+}
+
+
+
+
+
+
+// ===================== Function Definitions =====================
+
+void cleanupBuffers(unsigned int VAO, unsigned int VBO, unsigned int EBO) {
+    glDeleteVertexArrays(1, &VAO);
+    glDeleteBuffers(1, &VBO);
+    glDeleteBuffers(1, &EBO);
+}
+
+void cleanupPrograms(unsigned int shaderProgram, unsigned int screenShaderProgram) {
+    glDeleteProgram(shaderProgram);
+    glDeleteProgram(screenShaderProgram);
+}
+
+void cleanupFramebuffers(unsigned int framebuffer, unsigned int canvasBuffer) {
+    glDeleteFramebuffers(1, &framebuffer);
+    glDeleteTextures(1, &canvasBuffer);
+}
+
+void renderCanvas(unsigned int shaderProgram, unsigned int VAO, int frameCount, unsigned int framebuffer) {
+    // Bind to framebuffer and draw scene to texture
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glViewport(0, 0, TEX_WIDTH, TEX_HEIGHT); // Use texture dimensions
+    // the GL_COLOR_BUFFER is where image data is stored
+    // glclear sets all the values to the glclearcolor, which is usually black
+    glClear(GL_COLOR_BUFFER_BIT);
+    //shader program is the program for rendering to the texture, its composed of
+    // a vertex shader and a fragment shader
+    glUseProgram(shaderProgram);
+    // uniforms are variables that are the same for all vertices and fragments
+    // hence they are call uniforms, because they are uniform across all vertices and fragments
+    // 1i means we are passing 1 integer value
+    glUniform1i(glGetUniformLocation(shaderProgram, "timePassed"), frameCount);
+    glUniform1i(glGetUniformLocation(shaderProgram, "texWidth"), TEX_WIDTH);
+    glUniform1i(glGetUniformLocation(shaderProgram, "texHeight"), TEX_HEIGHT);
+
+    // this tells opengl to use the VAO we created earlier
+    // which laysout the vertex data in the correct way
+    // and also the vbo and ebo are bound to the VAO
+    glBindVertexArray(VAO);
+    // this is the draw command
+    // here we have specified that we are drawing triangles, so it will used the indices
+    // as though each entry is its own triangle
+    // the 6 is the number of indices total
+    // the GL_UNSIGNED_INT is the type of the indices
+    // and the 0 is the offset into the EBO
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+   
+
+    
+
+}
+
+void renderScreen(unsigned int screenShaderProgram, unsigned int VAO, unsigned int canvasBuffer, GLFWwindow* window) {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // MACOS XDR liquid retina display does some weird scaling
+    // so we need to get the framebuffer size and set the viewport accordingly
+    int frameBufferWidth, frameBufferHeight;
+    glfwGetFramebufferSize(window, &frameBufferWidth, &frameBufferHeight);
+    glViewport(0, 0, frameBufferWidth, frameBufferHeight);
+    glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT); // Use window dimensions
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUseProgram(screenShaderProgram);
+    glBindVertexArray(VAO);
+    // here we are binding the texture we created earlier to the screenShaderProgram
+    // this is the one that is bound to the framebuffer, which was drawn to earlier
+    glBindTexture(GL_TEXTURE_2D, canvasBuffer);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+}
+
+void initialize_canvas(unsigned int &framebuffer, unsigned int &canvasBuffer) {
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+    // Texture attachment
+
+    // a texture unit is a hardware unit on the gpu specialized for texture look ups
+    // each texture unit can only have at most one of each kind of texture
+    //GL_TEXTURE_1D, GL_TEXTURE_2D, GL_TEXTURE_3D, GL_TEXTURE_CUBE_MAP, etc
+    // depending on the system, you will have a different amount of texture units available
+    // each texture unit can store a limited number of addrresses because it has a limited number of registers
+    // usually there is a texture cache, that is stored close to the TU
+    // this can store a couple kilobytes or megabytes
+    // which is often not suffient for entire textures to be stored
+
+
+    // by default, open gl is in a mode that uses GL_TEXTURE0
+    // if we wanted to modify things for other texture units we would need to use
+    // glActiveTexture(GL_TEXTURE0);
+    // and then change which GL_TEXTURE is used
+
+
+    // textures are different from buffers, in that they are optimized for grid like access (uv) 2d or 3d
+    // they are also optimized for filtering (blending) based on local coordinates
+    // gets a pointer for the first texture
+    glGenTextures(1, &canvasBuffer);
+    // the first argument indicated the texture type
+    glBindTexture(GL_TEXTURE_2D, canvasBuffer);
+    // (texture_type, mipmap level, opengl storage data format, width, height, border width, texture file data format ,data type, address to texture)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, TEX_WIDTH, TEX_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    //this describes how sampling should occure, if there are less screen pixels, then texels
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    //this describes how sampling should occure, if there are more screen pixels, then texels
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    // this tells the frame buffer to use the texture we set up earlier to be used as the frame
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, canvasBuffer, 0);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+}
+
+void init_verts(unsigned int &VAO, unsigned int &VBO, unsigned int &EBO) {
+
+    float vertices[] = {
+        // positions         // texture coords
+         1.0f,  1.0f, 0.0f,  1.0f, 1.0f,   // top right
+         1.0f, -1.0f, 0.0f,  1.0f, 0.0f,   // bottom right
+        -1.0f, -1.0f, 0.0f,  0.0f, 0.0f,   // bottom left
+        -1.0f,  1.0f, 0.0f,  0.0f, 1.0f    // top left 
+    };
+    unsigned int indices[] = {
+        0, 1, 3,   // first Triangle
+        1, 2, 3    // second Triangle
+    };
+    // this generates the ids for the vao, vbo, ebo
+    // the first argument indicates how many of each it should expect
+    // it usually take a pointer to an array, but if it is a single, it does take just an unsigned int
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    // opengl is a state machine and only works with one  vao at a time
+    // this will tell opengl to use vao for now
+    glBindVertexArray(VAO);
+    // this tells opgl to use the specific vbo for now
+    // the first argument indicates what kind of buffer
+    // it can only bind one , for each kind of buffer
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    // glbufferdata will allocate and optionally initialize the buffer in memory
+    // the first agurment, indicates which buffer we are reffering to
+    // the second argument indicates the data types size (float64, int32 etc)
+    // the third argument is a pointer to the data
+    // the last argument indicates how it will be used, allowing for opengl to optimize
+    // GL_STATIC_DRAW indicates that it will not be modified over the course of the program
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    // same does for this buffer array
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+    //This indicates the shape of the individual components of each vertex
+    // the first argument indicates the id of the pointer layout, (you can often only have 16-32 of these depending on the hardware)
+    // the second argument indicates the length
+    // the third is the data type, the fourth tells opengl if itshould normalize the data
+    // the fifth argument tells opengl how many bytes it needs to go before it finds the next one
+    // the 6th positions indicates the starting offset
+    // Position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    // Texture coordinate attribute
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    // Unbind VAO by setting bind to 0 (null pointer)
+    glBindVertexArray(0);
+
+}
+
+GLFWwindow* init_window() {
+    // Initialize GLFW
+    glfwInit(); //setup glfw variables
+    // Tell GLFW that it should support OpenGL 3.3 or newer
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    // mark which functionality it should and shouldnt support
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    // mark it not to support deprecated functionality because 
+    // mac only supports a forward compatible core
+#ifdef __APPLE__
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+#endif
+
+    glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+
+    // Create window
+    // Create window, with height and width and window name, 
+    // the last two null arguments are used for, indicating:
+    // 1. fullscreen (null means windowed) , if you wanted to do fullscreen, you would have to get monitor information, glfwGetMonitors()
+    // 2. shared context between windows. If you had already previously made a window, you could pass it in here for it to be used
+    
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", NULL, NULL);
+    // if theres an error aking the window, terminate glfw
+    if (window == NULL)
+    {
+        std::cout << "Failed to create GLFW window" << std::endl;
+        glfwTerminate();
+        return NULL;
+    }
+    //this sets opengl to be using this window
+    glfwMakeContextCurrent(window);
+    //disable vsync
+    //this indicates how many multiples of the monitors refresh rate, should we wait before displaying
+    // setting to 0, means not wait, setting to 1 means vsync, setting more than one, means we will wait that many monitor frames
+    // before updating the monitor
+    glfwSwapInterval(0);
+    // this is to indicate a what function handles window resize events
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    return window;
+}
+
+// this function is called whenever the window is resized
+// it sets the viewport to the new size of the window
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+    glViewport(0, 0, width, height);
+}
+
+void processInput(GLFWwindow *window)
+{
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+}
+
+std::string loadShaderSource(const char* filePath) {
+    std::ifstream shaderFile;
+    std::stringstream shaderStream;
+
+    // Ensure ifstream objects can throw exceptions:
+    shaderFile.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+    try {
+        // Open file
+        shaderFile.open(filePath);
+        // Read file's buffer contents into stream
+        shaderStream << shaderFile.rdbuf();        
+        // Close file handler
+        shaderFile.close();
+        // Convert stream into string
+        return shaderStream.str();
+    }
+    catch (std::ifstream::failure& e) {
+        std::cerr << "ERROR::SHADER::FILE_NOT_SUCCESSFULLY_READ: " << e.what() << '\n';
+        return "";
+    }
+}
+
+unsigned int createShaderProgram(const char* vertexShaderSource, const char* fragmentShaderSource) {
+
+    // gl create shader is used to allocate a shader objec
+    // the type is indicated by the first argument
+    // we are then returned the id of the shader object, as an unsigned int
+    unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    // this attaches the shader source to the shader object
+    // the 1 is the number of strings we are passing
+    // the last arguemnt is an array, which contains the length of each string
+    // if we indicate null, it means our strings are null terminated
+    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+    // this compiles the shader into machine code
+    glCompileShader(vertexShader);
+    
+    // check for shader compile errors
+    int success;
+    char infoLog[512];
+    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+    if (!success)
+    {
+        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+        std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+    }
+
+    // Fragment shader
+    // same as above, but for the fragment shader
+    unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
+    glCompileShader(fragmentShader);
+
+    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+    if (!success)
+    {
+        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+        std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
+    }
+
+    // Link shaders
+    // glcreateprogram creates a program object, which shaders can be attached to
+    unsigned int shaderProgram = glCreateProgram();
+    // here we assign the shaders to the program object
+    // not that because each shader has a type, opengl knows what they are used for
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    // once the shaders are attached, the linker will check that the outputs of the vertex shader
+    // match the inputs of the fragment shader, and for other compatibility issues
+    // then it will link the program
+    glLinkProgram(shaderProgram);
+
+    // check for linking errors
+    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+    if (!success) {
+        glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+        std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
+    }
+
+    // the shader program now contains the executable code, and is linked,
+    // so the individual shaders are no longer needed
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    return shaderProgram;
+}

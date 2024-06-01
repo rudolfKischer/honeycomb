@@ -1,5 +1,7 @@
 # Honey Comb
 
+- Honey Comb is a rendering engine used to produce pretty images.
+![fig1](1000x1000px_cornell_box.JPG)
 
 # TODO
 
@@ -16,11 +18,10 @@
 - add roughness
 - add material class/ object 
 
+
 - PBR Materials
   - emmisive texture
   - roughness texture
   - normal map texture
   - Transparency texture
   - Metallic Map
-
-# honeycomb
