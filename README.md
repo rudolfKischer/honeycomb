@@ -2,6 +2,7 @@
 
 - Honey Comb is a rendering engine used to produce pretty images.
 ![fig1](1000x1000px_cornell_box.JPG)
+![fig2](skyboxDemo.JPG)
 
 # TODO
 
