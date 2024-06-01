@@ -1,0 +1,73 @@
+{
+  "spheres": [
+      {
+          "position": [4.0, 1.0, -6.0],
+          "radius": 2.0,
+          "color": [1.0, 0.0, 0.0],
+          "emission": [0.0, 0.0, 0.0],
+          "orm": [0.0, 1.0, 0.0]
+      },
+      {
+          "position": [0.0, 1.0, -6.0],
+          "radius": 2.0,
+          "color": [0.0, 1.0, 0.0],
+          "emission": [0.0, 0.0, 0.0],
+          "orm": [0.0, 1.0, 0.0]
+      },
+      {
+          "position": [-4.0, 1.0, -6.0],
+          "radius": 2.0,
+          "color": [0.0, 0.0, 1.0],
+          "emission": [0.0, 0.0, 0.0],
+          "orm": [0.0, 1.0, 0.0]
+      },
+      {
+        "name": "reflectiveSphere",
+        "position": [1.1, 0.0, -2.0],
+        "radius": 1.0,
+        "color": [0.6, 0.6, 0.6],
+        "emission": [0.0, 0.0, 0.0],
+        "orm": [0.0, 0.01, 1.0]
+    },
+    {
+      "name": "floor",
+      "position": [0.0, -501.0, -4.0],
+      "radius": 500,
+      "color": [1.0, 1.0, 1.0],
+      "emission": [0.0, 0.0, 0.0],
+      "orm": [0.0, 1.0, 0.0]
+    },
+    {
+        "name": "translucive",
+        "position": [-2, 0.75, -1.75],
+        "radius": 1.5,
+        "color": [0.8, 0.8, 0.8],
+        "emission": [0.0, 0.0, 0.0],
+        "orm": [1.0, 0.001, 0.0]
+    },
+    {
+      "name": "reflectiveSphereBig",
+      "position": [-12, 2.0, 5.0],
+      "radius": 6.0,
+      "color": [0.6, 0.6, 0.6],
+      "emission": [0.0, 0.0, 0.0],
+      "orm": [0.0, 0.01, 1.0]
+  },
+  {
+    "name": "sun",
+    "position": [-8.1, 1.0, -2.5],
+    "radius": 2.0,
+    "color": [80.8, 80.8, 50.5],
+    "emission": [0.8, 0.8, 0.5],
+    "orm": [0.0, 1.0, 0.0]
+  },
+  {
+    "name": "translucive",
+    "position": [4.5, 0.0, -1.0],
+    "radius": 1.0,
+    "color": [0.8, 0.8, 0.8],
+    "emission": [0.0, 0.0, 0.0],
+    "orm": [1.0, 0.001, 0.0]
+}
+  ]
+}
