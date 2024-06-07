@@ -9,12 +9,12 @@ uniform sampler2D screenTexture;
 
 void main()
 {
-    vec4 pixelColor = texture(screenTexture, TexCoords);
+    // vec4 pixelColor = texture(screenTexture, TexCoords);
 
     // gamma correction
-    vec3 col = pow(pixelColor.rgb, vec3(1.0/2.2));
-    FragColor = vec4(col, 1.0);
-    // FragColor = pixelColor;
+    // vec3 col = pow(pixelColor.rgb, vec3(1.0/2.2));
+    // FragColor = vec4(col, 1.0);
+    // FragColor = vec4(vec3(pixelColor.a), 1.0);
 
 
     // return;

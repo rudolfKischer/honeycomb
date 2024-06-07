@@ -1,12 +1,15 @@
 # Honey Comb
 
 - Honey Comb is a rendering engine used to produce pretty images.
-![fig1](1000x1000px_cornell_box.JPG)
-![fig2](skyboxDemo.JPG)
+
+<img src="cornell.JPG" width="400" height="400">
+<img src="sunlight.JPG" width="400" height="400"><br>
+<img src="skyboxDemo.JPG" width="400" height="400">
+<img src="red.JPG" width="400" height="400">
+
 
 # TODO
 
-- Move scenes into scene files
 - Triangle intersections
 - Add AABB intersections
 - Add traversal Accleration Data structures
@@ -14,13 +17,8 @@
   - Oct Trees
   - Sparse Oct Trees 
 - Add better Probability distribution functions
-- Add Sky Box
-- add transparency / refraction calculations
-- add roughness
-- add material class/ object 
 
-
-- PBR Materials
+- PBR Materials Textures
   - emmisive texture
   - roughness texture
   - normal map texture
