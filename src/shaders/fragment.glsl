@@ -1,31 +1,47 @@
 #version 330 core
 
 #define MAX_SPHERES 20
-const int sphereDatum = 13;
-out vec4 FragColor;
+#define MAX_MATERIALS 10
+#define MAX_AABB 20
+const int sphereDatum = 5;
+const int materialDatum = 9;
+const int aabbDatum = 7;
+layout(location = 0) out vec4 FragColor;
+layout(location = 1) out vec4 DataBuffer;
 in vec2 TexCoord;
 uniform sampler2D prevFrame;
 uniform sampler2D bgTexture;
+uniform sampler2D rngState;
 uniform int bgWidth;
 uniform int bgHeight;
 uniform int timePassed;
 uniform int texWidth;
 uniform int texHeight;
 uniform int numSpheres;
+uniform int numAABBs;
+
+uniform int raySamples;
 uniform bool camMoved;
 uniform vec3 camPos;
 uniform vec3 camFront;
 uniform float spheredata[ MAX_SPHERES * sphereDatum ];
+uniform float materialdata[ MAX_MATERIALS * materialDatum ];
+uniform float aabbdata[ MAX_SPHERES * aabbDatum ];
 uniform float seed1;
 uniform float uTime;
+
 // uniform sampler2D noiseTexture1;
 
 struct Sphere {
     vec3 center;
     float radius;
-    vec3 color; // Color attribute of spheres
-    vec3 emission; // Emission attribute of spheres
-    vec3 orm;
+    int materialIndex;
+};
+
+struct AABB {
+    vec3 minp;
+    vec3 maxp;
+    int materialIndex;
 };
 
 struct Ray {
@@ -33,16 +49,45 @@ struct Ray {
     vec3 direction;
 };
 
+struct Material {
+    vec3 color;
+    vec3 emission;
+    vec3 orm;
+};
 
-const int RAY_BOUNCE_LIMIT =10;
-const int RAY_SAMPLES = 1;
+struct Mesh {
+    int numVertices;
+    int numIndices;
+    int materialIndex;
+    vec3 vertices[100];
+    vec3 normals[100];
+    vec2 uvs[100];
+    int indices[100];
+};
+
+struct Hit {
+    float t;
+    vec3 n;
+    vec3 p;
+    int object;
+    Material mat;
+    Ray ray;
+};
+
+const int RAY_BOUNCE_LIMIT = 4;
+int RAY_SAMPLES = 6;
+
+
+
 float gSeed = 0.0;
 Sphere spheres[MAX_SPHERES];
-
+AABB aabbs[MAX_SPHERES];
+Material materials[MAX_MATERIALS];
 
 const float epsilon = 0.05;
 const float PI = 3.14159265359;
 const float invPI = 1.0 / PI;
+
 
 uint baseHash(uvec2 p)
 {
@@ -51,46 +96,146 @@ uint baseHash(uvec2 p)
     return h32 ^ (h32 >> 16);
 }
 
-vec3 hash3(inout float seed)
-{
-    uint n = baseHash(floatBitsToUint(vec2(seed += 0.1, seed += 0.1)));
-    uvec3 rz = uvec3(n, n * 16807U, n * 48271U);
-    return vec3(rz & uvec3(0x7fffffffU)) / float(0x7fffffff);
-}
-
 float hash1(inout float seed)
 {
-    uint n = baseHash(floatBitsToUint(vec2(seed += 0.1, seed += 0.1)));
-    return float(n & 0x7fffffffU) / float(0x7fffffff);
+    uint n = baseHash(floatBitsToUint(vec2(seed , seed)));
+
+    float f = float(n & 0x7fffffffU) / float(0x7fffffff);
+    seed = f;
+    return f;
 
 }
+vec3 hash3(inout float seed)
+{
+    // uint n1 = baseHash(floatBitsToUint(vec2(seed, seed)));
+    float f1 = hash1(seed);
+    float f2 = hash1(seed);
+    float f3 = hash1(seed);
+    return vec3(f1, f2, f3);
+}
+
+float gaussian(inout float gseed) {
+    float r1 = hash1(gseed);
+    float r2 = hash1(gseed);
+    float theta = 2.0 * PI * r1;
+    float r = sqrt(-2.0 * log(r2));
+    return r * cos(theta);
+}
+
 
 vec3 randomInUnitSphere(inout float seed)
 {   
-    vec3 h = hash3(seed) * vec3(2.0, 6.28318530718, 1.0) - vec3(1.0, 0.0, 0.0) ;
-    float phi = h.y;
-    float r = pow(h.z, 1.0/3.0);
-	return r * vec3(sqrt(1.0 - h.x * h.x) * vec2(sin(phi), cos(phi)), h.x);
+    float g1 = gaussian(seed);
+    float g2 = gaussian(seed);
+    float g3 = gaussian(seed);
+    return normalize(vec3(g1, g2, g3));
 }
 
+vec3 randomInUnitHemisphere(inout float seed, vec3 normal) {
+    vec3 inUnitSphere = randomInUnitSphere(seed);
+    return inUnitSphere * sign(dot(inUnitSphere, normal));
+}
 
-// Sphere structure
+vec3 randomCosineInUnitSphere(inout float seed)
+{
+    float r1 = hash1(seed);
+    float r2 = hash1(seed);
+    float azimuth = 2.0 * PI * r1;
+    float zenith = acos(sqrt(r2));
+    return vec3(sin(zenith) * cos(azimuth), sin(zenith) * sin(azimuth), cos(zenith));
+}
 
-// lr, lg, lb: emission color
-// x, y, z, r, R, G, B, lr, lg, lb
-// 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
-// sphere unpacker function
 Sphere unpackSphere(int index) {
     int offset = index * sphereDatum;
     vec3 center = vec3(spheredata[offset], spheredata[offset + 1], spheredata[offset + 2]);
     float radius = spheredata[offset + 3];
-    vec3 color = vec3(spheredata[offset + 4], spheredata[offset + 5], spheredata[offset + 6]);
-    vec3 emission = vec3(spheredata[offset + 7], spheredata[offset + 8], spheredata[offset + 9]);
-    vec3 orm = vec3(spheredata[offset + 10], spheredata[offset + 11], spheredata[offset + 12]);
-    return Sphere(center, radius, color, emission, orm);
+    int materialIndex = int(spheredata[offset + 4]);
+    return Sphere(center, radius, materialIndex);
 }
 
-// unpack the spheres
+
+
+// Material structure
+Material unpackMaterial(int index) {
+    int offset = index * 9;
+    vec3 color = vec3(materialdata[offset], materialdata[offset + 1], materialdata[offset + 2]);
+    vec3 emission = vec3(materialdata[offset + 3], materialdata[offset + 4], materialdata[offset + 5]);
+    vec3 orm = vec3(materialdata[offset + 6], materialdata[offset + 7], materialdata[offset + 8]);
+    return Material(color, emission, orm);
+}
+
+// AABB structure
+AABB unpackAABB(int index) {
+    int offset = index * 7;
+    vec3 minp = vec3(aabbdata[offset], aabbdata[offset + 1], aabbdata[offset + 2]);
+    vec3 maxp = vec3(aabbdata[offset + 3], aabbdata[offset + 4], aabbdata[offset + 5]);
+    int materialIndex = int(aabbdata[offset + 6]);
+    return AABB(minp, maxp, materialIndex);
+}
+
+// // Polygon Intersection
+// float intersectTriangle(vec3 A, vec3 B, vec3 C, Ray ray) {
+//     vec3 AB = B - A;
+//     vec3 AC = C - A;
+//     vec3 N = cross(AB, AC);
+
+
+// }
+
+
+// AABB intersection
+float minC(vec3 v) {
+    return min(min(v.x, v.y), v.z);
+}
+
+float maxC(vec3 v) {
+    return max(max(v.x, v.y), v.z);
+}
+
+vec3 aabbNormal(AABB aabb, vec3 intersectionPoint) {
+    // find the closest face  
+    vec3 minp = aabb.minp;
+    vec3 maxp = aabb.maxp;
+
+    vec3 diffmax = abs(maxp - intersectionPoint);
+    vec3 diffmin = abs(minp - intersectionPoint);
+
+    //float max
+    float minValue = float(0xffffffffU);
+    float minIndex = -1;
+    float minOrMax = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        if (diffmax[i] < minValue) {
+            minValue = diffmax[i];
+            minIndex = i;
+            minOrMax = 1.0;
+        }
+        if (diffmin[i] < minValue) {
+            minValue = diffmin[i];
+            minIndex = i;
+            minOrMax = -1.0;
+        }
+    }
+    vec3 normal = vec3(0.0, 0.0, 0.0);
+    normal[int(minIndex)] = minOrMax;
+
+    return normal;
+}
+
+
+float intersectAABB(vec3 minp, vec3 maxp, Ray ray) {
+  // normalize the ray direction
+    ray.direction = normalize(ray.direction);
+    vec3 invDir = 1.0 / (ray.direction + 0.0000000001);
+    vec3 LB = (minp - ray.origin) * invDir;
+    vec3 UB = (maxp - ray.origin) * invDir;
+    vec3 AABBmin = min(LB, UB);
+    vec3 AABBmax = max(LB, UB);
+    float tmin = minC(AABBmax);
+    float tmax = maxC(AABBmin);
+    if (tmax < 0.0 || tmin < tmax) return -1.0;
+    return tmax;
+}
 
 
 // Intersect ray with a sphere, return distance, -1 if no hit
@@ -103,292 +248,286 @@ float intersectSphere(Ray ray, Sphere sphere) {
     return -b - sqrt(h);
 }
 
-void trace(Ray ray, out float t, out int sphere, int prevSphere) {
+Hit getIntersection(Ray ray, int prevSphere) {
     float minT = 99999.0;
-    int closestIndex = -1;
+    // intersect spheres
+    Hit hit;
+    hit.object = -1;
+    int hitType = -1;
     for (int i = 0; i < numSpheres; ++i) {
-        if (i == prevSphere) continue;
         float t = intersectSphere(ray, spheres[i]);
         if (t > 0.0 && t < minT) {
             minT = t;
-            closestIndex = i;
+            hit.object = i;
+            hitType = 0;
         }
     }
-    t = minT;
-    sphere = closestIndex;
-}
-
-vec3 f_schlick(float cosTheta, vec3 f0) {
-    return f0 + (vec3(1.0) - f0) * pow(1.0 - cosTheta, 5.0);
-}
-
-float D_GGX(in float NoH, in float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NoH2 = NoH * NoH;
-    float b = (NoH2 * (a2 - 1.0) + 1.0);
-    return a2 * invPI / (b * b);
-}
-
-float G1_GGX_smith(in float NoV, in float roughness) {
-    float a = roughness * roughness;
-    float k = a / 2.0;
-    return max(NoV, 0.001) / (NoV * (1.0 - k) + k);
-}
-
-float G_Smith(in float NoV, in float NoL, in float roughness) {
-    return G1_GGX_smith(NoL, roughness) * G1_GGX_smith(NoV, roughness);
-}
-
-float f_shlick90(float cosineTheta, float f0, float f90) {
-    return f0 + (f90 - f0) * pow(1.0 - cosineTheta, 5.0);
-}
-
-float disneyDiffuseFactor(float NoV, float NoL, float VoH, float roughness) {
-    float alpha = roughness * roughness;
-    float F90 = 0.5 * VoH * VoH * alpha + 0.25;
-    float F_in = f_shlick90(NoL, 1.0, F90);
-    float F_out = f_shlick90(NoV, 1.0, F90);
-    return F_out * F_in;
-}
-
-vec3 brdfmicrofacet(vec3 l, vec3 v, in vec3 n, in vec3 albedo, in float metallic, in float roughness, in float reflectance) {
-    roughness = max(roughness, 0.001);
-
-    vec3 h = normalize(v + l);
-
-    float NoV = max(dot(n, v), 0.0);
-    float NoL = max(dot(n, l), 0.0);
-    float NoH = max(dot(n, h), 0.0);
-    float VoH = max(dot(v, h), 0.0);  
-
-    float reflect = max(1-roughness, 0.001);
-
-
-    vec3 f_0 = vec3(0.16 * reflect * reflect);
-    f_0 = mix(f_0, albedo, metallic);
-  
-    vec3 F = normalize(f_schlick(NoV, f_0));
-
-    float D = D_GGX(NoH, roughness);
-    float G = G_Smith(NoL, NoV, roughness);
-
-    vec3 specular = (F * D * G) / (4.0 * max(0.001, NoL) * max(0.001, NoV));
-
-    vec3 rhoD = albedo;
-
-    rhoD *= 1.0 - metallic;
-
-    vec3 diffuse = rhoD * disneyDiffuseFactor(NoV, NoL, VoH, roughness);
-
-    return diffuse + specular;
-
-}
-
-vec2 scaleToFitTexCoords(int width, int height) {
-    vec2 screenCoords = gl_FragCoord.xy / vec2(texWidth, texHeight);
-    vec2 corrected;
-
-    float textureAspect = float(width) / float(height);
-    float screenAspect = float(texWidth) / float(texHeight);
-
-    if (textureAspect > screenAspect) {
-        float scale = screenAspect / textureAspect;
-        corrected = vec2(screenCoords.x, screenCoords.y * scale + (1.0 - scale) * 0.5);
-    } else {
-        float scale = textureAspect / screenAspect;
-        corrected = vec2(screenCoords.x * scale + (1.0 - scale) * 0.5, screenCoords.y);
+    // intersect aabbs
+    for (int i = 0; i < numAABBs; ++i) {
+        float t = intersectAABB(aabbs[i].minp, aabbs[i].maxp, ray);
+        if (t > 0.0 && t < minT) {
+            minT = t;
+            hit.object = i;
+            hitType = 1;
+        }
     }
 
-    corrected.y = 1.0 - corrected.y;
+    if (hit.object == -1) return hit;
+    hit.t = minT;
+    hit.p = ray.origin + ray.direction * hit.t;
+    if (hitType == 0) {
+        hit.n = normalize(hit.p - spheres[hit.object].center);
+        hit.mat = materials[spheres[hit.object].materialIndex];
+    } else {
+        hit.n = aabbNormal(aabbs[hit.object], hit.p);
+        hit.mat = materials[aabbs[hit.object].materialIndex];
+    }
+    return hit;
+}
 
-    return corrected;
+float shlickFresnel(float n1, float n2, vec3 normal, vec3 incident) {
+    float r0 = pow((n1 - n2) / (n1 + n2), 2);
+    float cosTheta = clamp(dot(-incident, normal), 0.0, 1.0);
+    float r = r0 + (1 - r0) * pow(1.0 - cosTheta, 5);
+    return r;
+}
+
+vec3 D_GGX_sample(float alpha, vec3 n) {
+  float theta = atan(sqrt(-alpha * alpha * log(1.0 - hash1(gSeed))));
+  float phi = 2.0 * PI * hash1(gSeed);
+  vec3 H = vec3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+
+  // transform H to be in the same hemisphere as n
+  if (dot(H, n) < 0.0) {
+    H = -H;
+  }
+  return H;
+}
+
+float G_ggx_shlick(vec3 v, vec3 n, float alpha) {
+  float k = alpha * alpha * 0.5;
+  float NoV = max(dot(n, v), 0.0);
+  return NoV / (NoV * (1.0 - k) + k);
+
+}
+
+float G_smith(vec3 n, vec3 v, vec3 l, float alpha) {
+    return G_ggx_shlick(v, n, alpha) * G_ggx_shlick(l, n, alpha);
 }
 
 
+
+vec3 sampleOutRay(Ray r_i, Hit hit, inout vec3 T) {
+
+    float diceRoll = hash1(gSeed);
+    float diceRoll2 = hash1(gSeed);// I DONT KNOW WHY BUT THESE NEED TO HAPPEN BEFORE THE BRANCHING, otherwise things dont stay random
+
+    float epsilon = 0.01;
+
+    // Sample the microfacet normal
+    float surfaceRoughness = hit.mat.orm.y; 
+    // vec3 randNormHemisphere = randomInUnitHemisphere(gSeed, hit.n);
+    vec3 randNormHemisphere = D_GGX_sample(surfaceRoughness, hit.n);
+    vec3 micro_normal = mix(hit.n, randNormHemisphere, surfaceRoughness);
+
+
+    // shadowing and masking
+    if (-dot(micro_normal, r_i.direction) < 0.0) {
+      vec3 l = -reflect(r_i.direction, micro_normal);
+      float geometry = G_smith(hit.n, -r_i.direction, l, surfaceRoughness);
+      T = T * sqrt(geometry);
+    }
+
+    // Metallic case
+    vec3 reflection = normalize(reflect(r_i.direction, micro_normal));
+    float metallic = hit.mat.orm.z;
+    if (metallic > epsilon) { 
+      T = T * hit.mat.color;
+      return reflection; 
+    }
+
+    // Dielectric case
+    float ior = 1.4;
+    float fresnel = shlickFresnel(1.0, ior, hit.n, r_i.direction);
+    if (diceRoll < fresnel * (1 - surfaceRoughness)) {
+      return reflection;
+    }
+
+    // Refracted case
+    float opacity = hit.mat.orm.x; 
+    vec3 refracted = refract(r_i.direction, micro_normal, 1.0 / ior);
+    if (diceRoll2 < opacity) { 
+      T = T * hit.mat.color;
+      return refracted; 
+    }
+
+    // diffuse case
+    vec3 diffuse = normalize(randomInUnitHemisphere(gSeed, hit.n));
+    T = T * hit.mat.color;
+
+    return diffuse;
+
+}
+
+vec3 rgbToHSV(vec3 color) {
+    float cmax = max(color.r, max(color.g, color.b));
+    float cmin = min(color.r, min(color.g, color.b));
+    float delta = cmax - cmin;
+    float hue = 0.0;
+    if (delta != 0.0) {
+        if (cmax == color.r) {
+            hue = (color.g - color.b) / delta;
+        } else if (cmax == color.g) {
+            hue = 2.0 + (color.b - color.r) / delta;
+        } else {
+            hue = 4.0 + (color.r - color.g) / delta;
+        }
+    }
+    hue *= 60.0;
+    if (hue < 0.0) {
+        hue += 360.0;
+    }
+    float saturation = cmax == 0.0 ? 0.0 : delta / cmax;
+    float value = cmax;
+    return vec3(hue, saturation, value);
+}
+
+vec3 hsvToRGB(vec3 color) {
+    float c = color.z * color.y;
+    float x = c * (1.0 - abs(mod(color.x / 60.0, 2.0) - 1.0));
+    float m = color.z - c;
+    vec3 primeColor;
+    if (color.x >= 0.0 && color.x < 60.0) {
+        primeColor = vec3(c, x, 0.0);
+    } else if (color.x >= 60.0 && color.x < 120.0) {
+        primeColor = vec3(x, c, 0.0);
+    } else if (color.x >= 120.0 && color.x < 180.0) {
+        primeColor = vec3(0.0, c, x);
+    } else if (color.x >= 180.0 && color.x < 240.0) {
+        primeColor = vec3(0.0, x, c);
+    } else if (color.x >= 240.0 && color.x < 300.0) {
+        primeColor = vec3(x, 0.0, c);
+    } else {
+        primeColor = vec3(c, 0.0, x);
+    }
+    return primeColor + vec3(m);
+}
+
+void missedHit(Ray ray, inout vec3 T, inout vec3 L, int depth) {
+    vec3 dir = normalize(ray.direction);
+    float phi = atan(dir.z, dir.x);
+    float theta = acos(dir.y);
+    vec3 backgroundColor = texture(bgTexture, vec2((phi + PI) / (2.0 * PI), theta / PI)).xyz;
+    backgroundColor = sqrt(backgroundColor * 0.25);
+    if (depth != 0) {
+        // coonvert to hsv, and bring the luminance up by taking it to a power
+        // then convert back to rgb
+        vec3 hsv = rgbToHSV(backgroundColor);
+        hsv.z *= 1.3;
+        hsv.z = pow(hsv.z, 1.5);
+        backgroundColor = hsvToRGB(hsv);
+
+        // divide by the largest value in the texture to normalize
+        // we need to check the whole texture to find the largest value
+        L += T * backgroundColor;
+
+
+        return;
+    }
+    L += T * backgroundColor;
+    return;
+}
+
+void accumulate(inout vec3 T, inout vec3 L, inout Ray ray, Hit hit, inout int prevSphere, in int depth) {
+    
+    // if (length(hit.mat.emission) > 0.5) { return; }
+    ray.direction = sampleOutRay(ray, hit, T);
+    ray.origin = hit.p + ray.direction * 0.00001;
+    prevSphere = hit.object;
+
+    return;
+}
+
+
+void genSeed(inout float genSeed) {
+    vec2 uv = (gl_FragCoord.xy - 0.5 * vec2(texWidth, texHeight)) / texHeight;
+    vec4 rng = texture(rngState, uv);
+    uvec2 fragSeed = uvec2(floatBitsToUint(gl_FragCoord.x), floatBitsToUint(gl_FragCoord.y));
+    uint tseed = floatBitsToUint(float(baseHash(uvec2(uint(timePassed), uint(timePassed)))));
+    tseed ^= floatBitsToUint(seed1);
+    fragSeed.x ^= tseed;
+    fragSeed.y ^= floatBitsToUint(float(baseHash(uvec2(tseed,tseed))));
+    fragSeed.x ^= floatBitsToUint(seed1);
+    fragSeed.y ^= floatBitsToUint(seed1);
+    genSeed = float(baseHash(fragSeed)) / float(0xffffffffU);
+}
+
+Ray startRay(in vec2 uv) {
+    float viewportHeight = 2.0;
+    float viewportWidth = float(texWidth) / float(texHeight) * viewportHeight;
+    float focalLength = 1.0;
+    vec3 camUp = vec3(0.0, 1.0, 0.0);
+    vec3 camRight = normalize(cross(camFront, camUp));
+    vec3 startDir = normalize(vec3(uv.x * viewportWidth * camRight + uv.y * viewportHeight * camUp + focalLength * camFront));
+    startDir = normalize(startDir + randomCosineInUnitSphere(gSeed) *0.00001);
+    return Ray(camPos, startDir);
+}
+
+vec3 samplePixel(Ray ray) {
+    int prevSphere = -1;
+    vec3 T = vec3(1.0, 1.0, 1.0);
+    vec3 L = vec3(0.0, 0.0, 0.0);
+    for (int i = 0; i < RAY_BOUNCE_LIMIT; ++i) {
+      Hit hit = getIntersection(ray, prevSphere);
+      // return (vec3(hit.n) + 1.0) * 0.5;
+      if (hit.object == -1) { missedHit(ray, T, L, i); break; }
+      L += T * hit.mat.emission;
+      if (length(hit.mat.emission) > 0.5) { break; } // if hit light source, return light source color
+      accumulate(T, L, ray, hit, prevSphere, i);
+    }
+    return L;
+}
+
+vec3 getPixelColor(vec2 uv) {
+  vec3 pixelColor = vec3(0.0);
+  float sampleContribution = 1.0 / float(RAY_SAMPLES);
+  Ray ray = startRay(uv);
+  for (int s=0; s<RAY_SAMPLES; s++) {
+      pixelColor += samplePixel(ray);
+  }
+  pixelColor *= sampleContribution;
+  pixelColor = clamp(pixelColor.xyz, 0.0, 1.0);
+
+  float p = 1.0 / float(timePassed);
+  if (camMoved) {
+      p = 0.3;
+  }
+  vec3 prevPixelColor = texture(prevFrame, uv - 0.5).xyz;
+  pixelColor = mix(prevPixelColor, pixelColor, p);
+  return pixelColor;
+}
 
 void main()
 {   
     vec2 uv = (gl_FragCoord.xy - 0.5 * vec2(texWidth, texHeight)) / texHeight;
-    vec4 prevPixelColor = texture(prevFrame, uv - 0.5);
-
-    // output the background texture as a test
-    // vec2 bguv = (gl_FragCoord.xy - 0.5 * vec2(bgWidth, bgHeight)) / bgHeight;
-    // bguv.y = -bguv.y;
-    // FragColor = texture(bgTexture, scaleToFitTexCoords(bgWidth, bgHeight));
-    // return;
-
-    gSeed = float(baseHash(floatBitsToUint(gl_FragCoord.xy))) / float(0xffffffffU) + uTime + seed1 * uTime;
+    
+    genSeed(gSeed);
 
     for (int i = 0; i < numSpheres; ++i) {
         spheres[i] = unpackSphere(i);
     }
 
-    // Camera setup
-    float viewportHeight = 2.0;
-    float viewportWidth = float(texWidth) / float(texHeight) * viewportHeight;
-    float focalLength = 1.0;
+    for (int i = 0; i < MAX_MATERIALS; ++i) {
+        materials[i] = unpackMaterial(i);
+    }
 
-
-    // Create ray from camera to pixel
-
-    vec3 camUp = vec3(0.0, 1.0, 0.0);
-    vec3 camRight = normalize(cross(camFront, camUp));
-
-  
-    
-    // make sure to include camFront direction
-    vec3 startRay = normalize(vec3(uv.x * viewportWidth * camRight + uv.y * viewportHeight * camUp + focalLength * camFront));
-
-
-
-
-
-    vec4 pixelColor = vec4(0.0, 0.0, 0.0, 1.0);
-
-    vec3 T; // throughput, This number represents the current "color" of your filter through which light passes
-    vec3 L; // Radiance, this represents the accumulated light, that we add to upon reaching a light
-    Ray ray;
-    float rayContrib = 1.0 / float(RAY_SAMPLES);
-    for (int s=0; s<RAY_SAMPLES; s++) {
-        // reset T and L values
-        T = vec3(1.0);
-        L = vec3(0.0);
-        ray.origin = camPos ;
-        ray.direction = startRay ;//+ randomInUnitSphere(gSeed) * 0.0005;
-        int prevSphere = -1;
-
-        for (int i = 0; i < RAY_BOUNCE_LIMIT; ++i) {
-          int closestIndex;
-          float minT;
-
-          // Check for intersection with each sphere
-          trace(ray, minT, closestIndex, prevSphere);
-
-          if (closestIndex == -1) {
-              // vec3 backgroundColor = vec3(1.0, 1.0, 1.0);
-
-              // sample with spherical coordinates
-              vec3 dir = normalize(ray.direction);
-              float phi = atan(dir.z, dir.x);
-              float theta = acos(dir.y);
-              vec3 backgroundColor = texture(bgTexture, vec2((phi + PI) / (2.0 * PI), theta / PI)).xyz;
-              L += T * backgroundColor;// * max(dot(ray.direction, lightDir), 0.0);
-              break;
-          }
-
-          // if emission is present, we break
-          L += T * spheres[closestIndex].emission;
-          if (length(spheres[closestIndex].emission) > 0.5) {
-              break;
-          }
-
-          //albedo color
-          vec3 closestColor = spheres[closestIndex].color; 
-          float opacity = spheres[closestIndex].orm.x;
-
-          vec3 p = ray.origin + minT * ray.direction; // Point of intersection
-          vec3 normal = normalize(p - spheres[closestIndex].center);
-
-
-          vec3 reflection = reflect(ray.direction, normal);
-          vec3 inDirection = ray.direction;
-          vec3 outDirection;
-
-          // create a new ray
-          outDirection = randomInUnitSphere(gSeed);
-
-          // outDirection = normalize(outDirection + normal);
-
-          float roughness = spheres[closestIndex].orm.y;
-          float metallic = spheres[closestIndex].orm.z;
-
-
-          // metal reflection
-          // outDirection = normalize(reflection * (metallic) * (1.0 - roughness) + randomInUnitSphere(gSeed) * roughness);
-
-          // dielectric reflection using fresnel
-          // we use the fresnel coefficient to determine the reflection
-          float air = 1.0;
-          float glass = 1.4;
-          float R_0 = pow((air - glass) / (air + glass), 2);
-          float R = R_0 + (1 - R_0) * pow(1 - dot(-ray.direction, normal), 3.0);
-
-          // FragColor = vec4(vec3(R), 1.0);
-          // return;
-
-          // FragColor = vec4(vec3(R), 1.0);
-          vec3 dialectricReflection = 2 * reflection * R * (1-metallic) * (1.0 - roughness);
-          vec3 metalReflection = reflection * (1.0 - R) * (1.0 - roughness) * metallic;
-
-
-          outDirection = normalize(randomInUnitSphere(gSeed) * (1.0 - R) * roughness + dialectricReflection + metalReflection);
-
-          float transmit = hash1(gSeed);
-          if (opacity > 0.0) {
-              float ior = 1.4;
-
-              // light should get bent towards the normal
-
-              
-
-              float reflect = hash1(gSeed);
-              vec3 randDir = randomInUnitSphere(gSeed);
-              if (reflect < R) {
-                  if (dot(randDir, normal) > 0.0) {
-                      randDir = -randDir;
-                  }
-                  outDirection = reflection + randDir * roughness;
-              } else {
-                  if (dot(randDir, normal) < 0.0) {
-                      randDir = -randDir;
-                  }
-                  outDirection = refract(inDirection, normal, 1.0 / ior) + randDir * roughness;
-              }
-          } 
-
-
-
-          ray.direction = outDirection;
-          ray.origin = p + ray.direction * 0.0001;
-          prevSphere = closestIndex;
-
-
-          if (transmit > opacity) {
-              if (dot(ray.direction, normal) < 0.0) {
-                  ray.direction = -ray.direction;
-              } 
-               //* dot(ray.direction, normal) * 2;
-              // T = T * brdfmicrofacet(ray.direction, 
-              // -inDirection, 
-              // normal, 
-              // closestColor, 
-              // spheres[closestIndex].orm.z, 
-              // spheres[closestIndex].orm.y, 
-              // 1.00);
-              T = T * closestColor;
-          }
-          
-
-
-        }
-        pixelColor += vec4(L * rayContrib, 1.0) ;
-
+    for (int i = 0; i < numAABBs; ++i) {
+        aabbs[i] = unpackAABB(i);
     }
 
 
-    
 
-
-    vec4 finalPixelColor = vec4(clamp(pixelColor.xyz, 0.0, 1.0), 1.0);
-
-    float p = 1.0 / float(timePassed);
-
-    // priortize the new frame, if the camera moved
-    if (camMoved) {
-        p = 0.2;
-    }
-    
-    finalPixelColor = mix(prevPixelColor, finalPixelColor, p);
-    FragColor = finalPixelColor;
+    vec3 pixelColor = getPixelColor(uv);
+    DataBuffer = vec4(vec3(gSeed), 1.0);
+    FragColor = vec4(pixelColor, 1.0);
 }

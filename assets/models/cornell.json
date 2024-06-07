@@ -1,4 +1,63 @@
 {
+  "materials": [
+      {
+        "name": "diffuse-white-p0",
+        "color": [1.0, 1.0, 1.0],
+        "emission": [0.0, 0.0, 0.0],
+        "orm": [0.0, 1.0, 0.0]
+      },
+      {
+        "name": "diffuse-red-p1",
+        "color": [1.0, 0.0, 0.0],
+        "emission": [0.0, 0.0, 0.0],
+        "orm": [0.0, 1.0, 0.0]
+      },
+      {
+        "name": "diffuse-green-p2",
+        "color": [0.0, 1.0, 0.0],
+        "emission": [0.0, 0.0, 0.0],
+        "orm": [0.0, 1.0, 0.0]
+      },
+      {
+        "name": "diffuse-specular-1-p3",
+        "color": [0.9, 0.2, 0.2],
+        "emission": [0.0, 0.0, 0.0],
+        "orm": [0.0, 0.3, 0.0]
+      },
+      {
+        "name": "diffuse-specular-2-p4",
+        "color": [0.4, 0.2, 0.9],
+        "emission": [0.0, 0.0, 0.0],
+        "orm": [0.0, 0.3, 0.0]
+      },
+      {
+        "name": "emmissive-p5",
+        "color": [1.0, 1.0, 1.0],
+        "emission": [1.0, 0.7, 0.4],
+        "orm": [0.9, 0.1, 0.0]
+      },
+      {
+        "name": "translucive-p6",
+        "color": [1.0, 1.0, 1.0],
+        "emission": [0.0, 0.0, 0.0],
+        "orm": [0.9, 0.1, 0.0]
+      },
+      {
+        "name": "reflective-p7",
+        "color": [1.0, 1.0, 1.0],
+        "emission": [0.0, 0.0, 0.0],
+        "orm": [0.0, 0.01, 1.0]
+      },
+      {
+        "name": "light-p8",
+        "color": [0.9, 0.2, 0.2],
+        "emission": [1.0, 1.0, 1.0],
+        "orm": [0.0, 0.3, 0.0]
+      }
+
+
+
+  ],
   "spheres": [
       {
           "name": "rightWall",
@@ -6,7 +65,8 @@
           "radius": 500,
           "color": [1.0, 0.0, 0.0],
           "emission": [0.0, 0.0, 0.0],
-          "orm": [0.0, 1.0, 0.0]
+          "orm": [0.0, 1.0, 0.0],
+          "material": 1
       },
       {
           "name": "leftWall",
@@ -14,7 +74,8 @@
           "radius": 500,
           "color": [0.0, 1.0, 0.0],
           "emission": [0.0, 0.0, 0.0],
-          "orm": [0.0, 1.0, 0.0]
+          "orm": [0.0, 1.0, 0.0],
+          "material": 2
       },
       {
           "name": "frontWall",
@@ -22,7 +83,8 @@
           "radius": 500,
           "color": [1.0, 1.0, 1.0],
           "emission": [0.0, 0.0, 0.0],
-          "orm": [0.0, 1.0, 0.0]
+          "orm": [0.0, 1.0, 0.0],
+          "material": 0
       },
       {
           "name": "backWall",
@@ -30,7 +92,8 @@
           "radius": 500,
           "color": [1.0, 1.0, 1.0],
           "emission": [0.0, 0.0, 0.0],
-          "orm": [0.0, 1.0, 0.0]
+          "orm": [0.0, 1.0, 0.0],
+          "material": 0
       },
       {
           "name": "floor",
@@ -38,15 +101,17 @@
           "radius": 500,
           "color": [1.0, 1.0, 1.0],
           "emission": [0.0, 0.0, 0.0],
-          "orm": [0.0, 1.0, 0.0]
+          "orm": [0.0, 1.0, 0.0],
+          "material": 0
       },
       {
           "name": "light",
-          "position": [0.0, 53.0, -3.0],
+          "position": [0.0, 52.5, -3.0],
           "radius": 50,
           "color": [1.0, 1.0, 1.0],
           "emission": [0.8, 0.8, 0.6],
-          "orm": [0.0, 1.0, 0.0]
+          "orm": [0.0, 1.0, 0.0],
+          "material": 8
       },
       {
           "name": "ceiling1",
@@ -54,7 +119,8 @@
           "radius": 50,
           "color": [1.0, 1.0, 1.0],
           "emission": [0.0, 0.0, 0.0],
-          "orm": [0.0, 1.0, 0.0]
+          "orm": [0.0, 1.0, 0.0],
+          "material": 0
       },
       {
           "name": "ceiling2",
@@ -62,7 +128,8 @@
           "radius": 50,
           "color": [1.0, 1.0, 1.0],
           "emission": [0.0, 0.0, 0.0],
-          "orm": [0.0, 1.0, 0.0]
+          "orm": [0.0, 1.0, 0.0],
+          "material": 0
       },
       {
           "name": "ceiling3",
@@ -70,7 +137,8 @@
           "radius": 50,
           "color": [1.0, 1.0, 1.0],
           "emission": [0.0, 0.0, 0.0],
-          "orm": [0.0, 1.0, 0.0]
+          "orm": [0.0, 1.0, 0.0],
+          "material": 0
       },
       {
           "name": "reflectiveSphere",
@@ -78,7 +146,8 @@
           "radius": 0.3,
           "color": [1.0, 1.0, 1.0],
           "emission": [0.0, 0.0, 0.0],
-          "orm": [0.0, 0.01, 1.0]
+          "orm": [0.0, 0.01, 1.0],
+          "material": 7
       },
       {
           "name": "translucive",
@@ -86,7 +155,8 @@
           "radius": 0.2,
           "color": [1.0, 1.0, 1.0],
           "emission": [0.0, 0.0, 0.0],
-          "orm": [0.9, 0.1, 0.0]
+          "orm": [0.9, 0.1, 0.0],
+          "material": 6
       },
       {
         "name": "diffuseSpecular",
@@ -94,7 +164,8 @@
         "radius": 0.2,
         "color": [0.9, 0.2, 0.2],
         "emission": [0.0, 0.0, 0.0],
-        "orm": [0.0, 0.3, 0.0]
+        "orm": [0.0, 0.3, 0.0],
+        "material": 3
       },
       {
         "name": "diffuseSpecular2",
@@ -102,7 +173,8 @@
         "radius": 0.5,
         "color": [0.4, 0.2, 0.9],
         "emission": [0.0, 0.0, 0.0],
-        "orm": [0.0, 0.3, 0.0]
+        "orm": [0.0, 0.3, 0.0],
+        "material": 4
       },
       {
         "name": "emmissive",
@@ -110,7 +182,8 @@
         "radius": 0.2,
         "color": [1.0, 1.0, 1.0],
         "emission": [1.0, 0.7, 0.4],
-        "orm": [0.9, 0.1, 0.0]
+        "orm": [0.9, 0.1, 0.0],
+        "material": 5
     }
   ]
 }

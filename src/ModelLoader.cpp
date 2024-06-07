@@ -1,36 +1,84 @@
 #include "ModelLoader.h"
-#include <iostream>
-#include <fstream>
-#include "nlohmann/json.hpp" // nlohmann
+ // nlohmann
 
 using json = nlohmann::json;
 
-const int datum = 13;
+struct Entry {
+    std::string name;
+    int size;
+};
 
-void packSpheres(Sphere* spheres, int numSpheres, float* data) {
-    
-    for (int i = 0; i < numSpheres; i++) {
-        data[i * datum] = spheres[i].position[0];
-        data[i * datum + 1] = spheres[i].position[1];
-        data[i * datum + 2] = spheres[i].position[2];
-        data[i * datum + 3] = spheres[i].radius;
-        data[i * datum + 4] = spheres[i].color[0];
-        data[i * datum + 5] = spheres[i].color[1];
-        data[i * datum + 6] = spheres[i].color[2];
-        data[i * datum + 7] = spheres[i].emission[0];
-        data[i * datum + 8] = spheres[i].emission[1];
-        data[i * datum + 9] = spheres[i].emission[2];// orm
-        data[i * datum + 10] = spheres[i].orm[0];
-        data[i * datum + 11] = spheres[i].orm[1];
-        data[i * datum + 12] = spheres[i].orm[2];
+// schemas will be mappings from the struct to a flattened array
+struct Field {
+    std::string name;
+    int size;
+    int offset;
+};
+// we will use the schema to flatten the struct into a float array
+
+struct Schema {
+    std::string name;
+    std::vector<Field> fields;
+    int size;
+};
+
+
+// offset, and the total size of the schema should be calculated
+Schema initSchema(std::vector<Entry> entries, std::string name) {
+    Schema schema;
+    schema.name = name;
+    schema.size = 0;
+    for (int i = 0; i < entries.size(); i++) {
+        Field field;
+        field.name = entries[i].name;
+        field.size = entries[i].size;
+        field.offset = schema.size;
+        schema.size += entries[i].size;
+        schema.fields.push_back(field);
     }
+    return schema;
 }
 
-float* loadModel(const char* path, int* numOfModels) {
+std::vector<Entry> sphereEntries = {
+    {"position", 3},
+    {"radius", 1},
+    // {"color", 3},
+    // {"emission", 3},
+    // {"orm", 3},
+    {"material", 1}
+};
 
-    // load the model
-        // Read the JSON file
-    std::ifstream file(path);
+std::vector<Entry> materialEntries = {
+    {"color", 3},
+    {"emission", 3},
+    {"orm", 3}
+};
+
+
+std::vector<Entry> aabbEntries = {
+    {"minp", 3},
+    {"maxp", 3},
+    {"material", 1}
+};
+
+
+Schema sphereSchema = initSchema(sphereEntries, "spheres");
+Schema materialSchema = initSchema(materialEntries, "materials");
+Schema aabbSchema = initSchema(aabbEntries, "aabb");
+
+
+// map from string to schema
+std::map<std::string, Schema> schemas = {
+    {"spheres", sphereSchema},
+    {"materials", materialSchema},
+    {"aabb", aabbSchema}
+};
+
+
+float* loadSchema(const char* path, int* num, int* size, std::string schemaName) {
+    Schema schema = schemas[schemaName];
+    // Read the JSON file
+  std::ifstream file(path);
     if (!file) {
         std::cerr << "Unable to open file: " << path << std::endl;
         return nullptr;
@@ -40,30 +88,32 @@ float* loadModel(const char* path, int* numOfModels) {
     file >> j;
     file.close();
     
-    // Check if the JSON contains "spheres"
-    if (!j.contains("spheres") || !j["spheres"].is_array()) {
-        std::cerr << "JSON does not contain a valid 'spheres' array." << std::endl;
+    // Check if the JSON contains Schema.name
+    if (!j.contains(schema.name) || !j[schema.name].is_array()) {
+        std::cerr << "JSON does not contain a valid '" << schema.name << "' array." << std::endl;
         return nullptr;
     }
-    
-    // Extract spheres
-    std::vector<Sphere> spheres;
-    for (const auto& item : j["spheres"]) {
-        Sphere sphere;
-        item.at("position").get_to(sphere.position);
-        item.at("radius").get_to(sphere.radius);
-        item.at("color").get_to(sphere.color);
-        item.at("emission").get_to(sphere.emission);
-        item.at("orm").get_to(sphere.orm);
-        spheres.push_back(sphere);
+
+    std::vector<float> data;
+    for (const auto& item : j[schema.name]) {
+        for (int i = 0; i < schema.fields.size(); i++) {
+            for (int k = 0; k < schema.fields[i].size; k++) {
+                if (schema.fields[i].size == 1) {
+                    // print out the name of the current field and the value
+                    // std::cout << schema.fields[i].name << ": " << item[schema.fields[i].name] << std::endl;
+                    data.push_back(item[schema.fields[i].name]);
+                } else {
+                    data.push_back(item[schema.fields[i].name][k]);
+                }
+            }
+        }
     }
 
-    *numOfModels = spheres.size();
-    
-    // Allocate memory for the packed data
-    float* data = new float[spheres.size() * datum];
-    packSpheres(spheres.data(), spheres.size(), data);
-    
-    return data;
-
+    *num = j[schema.name].size();
+    float* dataArr = new float[data.size()];
+    for (int i = 0; i < data.size(); i++) {
+        dataArr[i] = data[i];
+    }
+    *size = schema.size;
+    return dataArr;
 }
