@@ -17,14 +17,23 @@ std::random_device rd;  // obtain a random number from hardware
 std::mt19937 gen(rd());
 std::uniform_real_distribution<> dis(0.0, 1.0);
 
-const unsigned int TEX_WIDTH = 1000;
-const unsigned int TEX_HEIGHT = 1000;
-int SCR_WIDTH = 1000;
-int SCR_HEIGHT = 1000;
+const int FRACTED_SAMPLES = 1;
+const unsigned int TEX_WIDTH = 512 * FRACTED_SAMPLES;
+const unsigned int TEX_HEIGHT = 512 * FRACTED_SAMPLES;
+int SCR_WIDTH = 512;
+int SCR_HEIGHT = 512;
+
+// ONLY USE POWER OF 2 TEXTURE SIZES
+int VERTEX_TEX_SIZE = 2048;
+int FREE_VERTEX_START = 0;
+
+// ONLY USE POWER OF 2 TEXTURE SIZES
+int INDEX_TEX_SIZE = 2048;
+int FREE_INDEX_START = 0; 
 
 float camPos[3] = {0.0, 2.5, 6.0};
 float camFront[3] = {0.0, 0.0, -1.0};
-float speed = 0.01;
+float speed = 1.0;
 
 void setRenderTarget(unsigned int shaderProgram, unsigned int framebuffer, int w, int h);
 void updateCameraPosition(GLFWwindow* window, double deltaTime);
@@ -101,6 +110,15 @@ GLuint loadTexture(const char* path, int* width, int* height, int* nrChannels) {
 }
 
 
+
+// we want to be able to create a bvh tree from for the meshes
+// we will make it out of aabbs
+// so we will need an array of aabb data
+// and an array of nodes that will be used to create the tree
+
+
+
+
 int main()
 {
 
@@ -117,9 +135,9 @@ int main()
     // std::string modelPathStr = assetsFolder + testModel;
     // std::string modelPathStr = assetsFolder + cornellBox;
     // std::string modelPathStr = assetsFolder + grid;
-    std::string modelPathStr = assetsFolder + cornellBoxTwoSpheres;
+    // std::string modelPathStr = assetsFolder + cornellBoxTwoSpheres;
     // std::string modelPathStr = assetsFolder + cornellSunlight;
-    // std::string modelPathStr = assetsFolder + simple;
+    std::string modelPathStr = assetsFolder + simple;
 
 
     const char* modelPath = (const char*)modelPathStr.c_str();
@@ -141,6 +159,78 @@ int main()
         std::cout << "Failed to load model" << std::endl;
         return -1;
     }
+
+
+
+    int numOfMeshes, meshSize;
+    int totNumVerts, totNumFaces;
+    float* meshData = loadMeshes(modelPath, &numOfMeshes, &meshSize, &totNumVerts, &totNumFaces);
+    if (meshData == nullptr) {
+        std::cout << "Failed to load model" << std::endl;
+        return -1;
+    }
+    int vertexStart = numOfMeshes * meshSize;
+    int indexStart = vertexStart + totNumVerts * 3;
+
+    float* meshVertices = new float[totNumVerts * 3];
+    // load the vertices
+    for (int i = 0; i < totNumVerts * 3; i++) {
+        meshVertices[i] = meshData[vertexStart + i];
+    }
+
+    float* meshIndices = new float[totNumFaces * 3];
+    // load the indices
+    for (int i = 0; i < totNumFaces * 3; i++) {
+        meshIndices[i] = meshData[indexStart + i];
+    }
+
+    float* meshStructData = new float[numOfMeshes * meshSize];
+    for (int i = 0; i < numOfMeshes * meshSize; i++) {
+        meshStructData[i] = meshData[i];
+    }
+
+    // print out all the number of meshes, the number of vertices , the number of faces
+    // and the mesh size
+    std::cout << "Number of meshes: " << numOfMeshes << std::endl;
+    std::cout << "Number of vertices: " << totNumVerts << std::endl;
+    std::cout << "Number of faces: " << totNumFaces << std::endl;
+    std::cout << "Mesh size: " << meshSize << std::endl;
+
+    // print out the indices
+    // print out each face on a new line
+    // for (int i = 0; i < totNumFaces * 3; i++) {
+    //     std::cout << meshIndices[i] << " ";
+    //     if ((i + 1) % 3 == 0) {
+    //         std::cout << std::endl;
+    //     }
+
+    // }
+    // // new line
+    // std::cout << std::endl;
+
+    // // print out the vertices
+    // for (int i = 0; i < totNumVerts * 3; i++) {
+    //     std::cout << meshVertices[i] << " ";
+    //     if ((i + 1) % 3 == 0) {
+    //         std::cout << std::endl;
+    //     }
+    // }
+    // new line
+    std::cout << std::endl;
+
+    // print mesh data
+    for (int i = 0; i < numOfMeshes * meshSize; i++) {
+        std::cout << meshStructData[i] << " ";
+    }
+
+
+
+
+
+
+
+
+
     // Initialize window
     GLFWwindow* window = make_window(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL");
     
@@ -192,6 +282,73 @@ int main()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, rngStateTex, 0);
 
+    // test vertices
+    // // make a single triangle to insert int the vertex buffer
+    // GLfloat triangle[9] = {
+    //     40.0f, 0.0f, 0.0f,
+    //     0.0f, 40.0f, 0.0f,
+    //     0.0f, 0.0f, 40.0f
+    // };
+
+    GLfloat* vertices = new GLfloat[VERTEX_TEX_SIZE * VERTEX_TEX_SIZE * 3];
+    for (int i = 0; i < VERTEX_TEX_SIZE * VERTEX_TEX_SIZE * 3; i++) {
+        vertices[i] = 0.0;
+    }
+
+    // load mesh vertices into vertices
+    for (int i = 0; i < totNumVerts * 3; i++) {
+        vertices[i] = meshVertices[i];
+    }
+
+
+
+    GLuint vertexBufferAsTexture;
+    glGenTextures(1, &vertexBufferAsTexture);
+    glBindTexture(GL_TEXTURE_2D, vertexBufferAsTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, VERTEX_TEX_SIZE, VERTEX_TEX_SIZE, 0, GL_RGB, GL_FLOAT, vertices);
+
+
+    // test indices
+    // make a single triangle to insert int the index buffer
+    // GLfloat triangleIndices[3] = {
+        // 0.0, 1.0, 2.0
+    // };
+
+    GLfloat* indices = new GLfloat[INDEX_TEX_SIZE * INDEX_TEX_SIZE * 3];
+    for (int i = 0; i < INDEX_TEX_SIZE * INDEX_TEX_SIZE * 3; i++) {
+        indices[i] = 0.0;
+    }
+
+    for (int i = 0; i < totNumFaces * 3; i++) {
+        indices[i] = meshIndices[i];
+    }
+
+
+
+    GLuint indexBufferAsTexture;
+    glGenTextures(1, &indexBufferAsTexture);
+    glBindTexture(GL_TEXTURE_2D, indexBufferAsTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, INDEX_TEX_SIZE, INDEX_TEX_SIZE, 0, GL_RGB, GL_FLOAT, indices);
+
+    delete[] vertices;
+    delete[] indices;
+
+    // print the opengl max texture size
+    int maxTextureSize;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+    std::cout << "Max texture size: " << maxTextureSize << std::endl;
+
+
+    
+
 
     // Render loop
     while (!glfwWindowShouldClose(window))
@@ -221,10 +378,30 @@ int main()
         // add the number of aabbs
         glUniform1i(glGetUniformLocation(shaderProgram, "numAABBs"), numOfAABBs);
 
+        // mesh data
+        glUniform1fv(glGetUniformLocation(shaderProgram, "meshdata"), numOfMeshes * meshSize, meshStructData);
+
+
+
+        glUniform1i(glGetUniformLocation(shaderProgram, "FRACTED_SAMPLES"), FRACTED_SAMPLES);
+
         // bind the rng state texture
         glActiveTexture(GL_TEXTURE4);
         glBindTexture(GL_TEXTURE_2D, rngStateTex);
         glUniform1i(glGetUniformLocation(shaderProgram, "rngState"), 4);
+
+        // bind the vertex buffer as texture
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_2D, vertexBufferAsTexture);
+        glUniform1i(glGetUniformLocation(shaderProgram, "vertexBuffer"), 5);
+        glUniform1i(glGetUniformLocation(shaderProgram, "VBOwidth"), VERTEX_TEX_SIZE);
+
+        // bind the index buffer as texture
+        glActiveTexture(GL_TEXTURE6);
+        glBindTexture(GL_TEXTURE_2D, indexBufferAsTexture);
+        glUniform1i(glGetUniformLocation(shaderProgram, "indexBuffer"), 6);
+        glUniform1i(glGetUniformLocation(shaderProgram, "EBOwidth"), INDEX_TEX_SIZE);
+
 
 
         // pass in the background texture
@@ -260,6 +437,9 @@ int main()
         // Render to screen
         quad->texture = renderTexture->texture;
         setRenderTarget(screenShaderProgram, 0, SCR_WIDTH, SCR_HEIGHT);
+        glUniform1i(glGetUniformLocation(screenShaderProgram, "FRACTED_SAMPLES"), FRACTED_SAMPLES);
+
+
         quad->draw();
 
         // apply changes to window and get input events
@@ -304,9 +484,9 @@ void updateCameraPosition(GLFWwindow* window, double deltaTime) {
 
     // if control is pressed, up the
     if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
-        speed = 10.0;
+        speed = 100.0;
     else
-        speed = 1.00;
+        speed = 10.00;
     
     speed *= deltaTime;
 
@@ -342,8 +522,13 @@ void updateCameraPosition(GLFWwindow* window, double deltaTime) {
         camPos[1] -= speed;
     
     // turn camera left and right with q and e
+
+    float camSensitivty = 10.0;
+
+
+
     if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
-        float angle = -0.01;
+        float angle = -camSensitivty * deltaTime;
         float newCamFront[3];
         newCamFront[0] = camFront[0] * cos(angle) - camFront[2] * sin(angle);
         newCamFront[1] = camFront[1];
@@ -353,7 +538,7 @@ void updateCameraPosition(GLFWwindow* window, double deltaTime) {
         }
     }
     if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
-        float angle = 0.01;
+        float angle = camSensitivty * deltaTime;
         float newCamFront[3];
         newCamFront[0] = camFront[0] * cos(angle) - camFront[2] * sin(angle);
         newCamFront[1] = camFront[1];
