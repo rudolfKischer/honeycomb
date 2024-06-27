@@ -2,19 +2,40 @@
 out vec4 FragColor;
 in vec2 TexCoords;
 uniform sampler2D screenTexture;
+uniform int FRACTED_SAMPLES;
 
 
+// const int FRACTED_SAMPLES = 2;
 
+// we take multiple samples at the same time
+// to do this we draw the scene  FRACTED_SAMPLES * FRACTED_SAMPLES times
+// if FRACTED_SAMPLES = 1, then we can just sample the texCoords
+// other wise we need to do an average of all the samples
+// To do this we get the corresponding position in the top left corner of the screen
+// then we iterate by row and col, for the number of fractedsamples
+// to get the position of the sample we add the row and col to the top left corner
+// we take our texCoords
 
 
 void main()
-{
-    // vec4 pixelColor = texture(screenTexture, TexCoords);
+{   
+    // FragColor = texture(screenTexture, TexCoords);
+    // return;
+    // vec4 pixelColor = vec4(0.0);
+    // for (int row = 0; row < FRACTED_SAMPLES; ++row)
+    // {
+    //     for (int col = 0; col < FRACTED_SAMPLES; ++col)
+    //     {  
+    //         vec2 startPos = TexCoords / float(FRACTED_SAMPLES);
+    //         vec2 relativePos = vec2(float(row), float(col)) / float(FRACTED_SAMPLES);
+    //         vec2 samplePos = startPos + relativePos;
+    //         pixelColor += texture(screenTexture, samplePos);
+    //     }
+    // }
+    // pixelColor /= float(FRACTED_SAMPLES * FRACTED_SAMPLES);
 
-    // gamma correction
-    // vec3 col = pow(pixelColor.rgb, vec3(1.0/2.2));
-    // FragColor = vec4(col, 1.0);
-    // FragColor = vec4(vec3(pixelColor.a), 1.0);
+// 
+    // FragColor = pixelColor;
 
 
     // return;

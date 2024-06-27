@@ -3,7 +3,7 @@
     {
       "color": [0.7, 0.2, 0.1],
       "emission": [0.0, 0.0, 0.0],
-      "orm": [0.0, 0.40, 0.0]
+      "orm": [0.0, 0.80, 0.0]
     },
     {
       "color": [0.7, 0.2, 0.1],
@@ -28,10 +28,12 @@
 
   ],
   "aabb": [
+  ],
+  "meshes": [
     {
-      "minp": [-1.0, -1.0, -1.0],
-      "maxp": [1.0, 1.0, 1.0],
-      "material": 0
+      "position": [2.4, 0.0, -1.5],
+      "material": 0,
+      "obj_path_str": "/Users/rudolfkischer/Projects/honeycomb/assets/models/lowpolyteapot.obj"
     }
   ],
   "spheres": [

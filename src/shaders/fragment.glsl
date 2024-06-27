@@ -3,15 +3,23 @@
 #define MAX_SPHERES 20
 #define MAX_MATERIALS 10
 #define MAX_AABB 20
+#define MAX_MESH 20
 const int sphereDatum = 5;
 const int materialDatum = 9;
 const int aabbDatum = 7;
+const int meshDatum = 14;
+
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out vec4 DataBuffer;
 in vec2 TexCoord;
 uniform sampler2D prevFrame;
 uniform sampler2D bgTexture;
 uniform sampler2D rngState;
+uniform sampler2D vertexBuffer;
+uniform sampler2D indexBuffer;
+
+uniform int VBOwidth;
+uniform int EBOwidth;
 uniform int bgWidth;
 uniform int bgHeight;
 uniform int timePassed;
@@ -27,10 +35,29 @@ uniform vec3 camFront;
 uniform float spheredata[ MAX_SPHERES * sphereDatum ];
 uniform float materialdata[ MAX_MATERIALS * materialDatum ];
 uniform float aabbdata[ MAX_SPHERES * aabbDatum ];
+uniform float meshdata[ MAX_MESH * meshDatum ];
 uniform float seed1;
 uniform float uTime;
 
+uniform int FRACTED_SAMPLES;
+
+vec3 VERTICES[100];
+int VERTICES_COUNT = 0;
+
+
+
+
+
 // uniform sampler2D noiseTexture1;
+
+struct bvhNode {
+    vec3 minp;
+    vec3 maxp;
+    int left;
+    int right;
+};
+
+
 
 struct Sphere {
     vec3 center;
@@ -55,14 +82,32 @@ struct Material {
     vec3 orm;
 };
 
+// struct Mesh {
+//     int numVertices;
+//     int numFaces;
+//     int otherthing;
+//     int materialIndex;
+//     int vertexStart;
+//     ivec3 faces[100];
+// };
+
+// struct Mesh {
+//     int numVertices;
+//     int numFaces;
+//     int materialIndex;
+//     int vertexStart;
+//     int facesStart;
+// };
+
 struct Mesh {
-    int numVertices;
-    int numIndices;
+    vec3 position;
     int materialIndex;
-    vec3 vertices[100];
-    vec3 normals[100];
-    vec2 uvs[100];
-    int indices[100];
+    int vertexStart;
+    int facesStart;
+    int numVertices;
+    int numFaces;
+    vec3 minp;
+    vec3 maxp;
 };
 
 struct Hit {
@@ -70,12 +115,13 @@ struct Hit {
     vec3 n;
     vec3 p;
     int object;
+    int type;
     Material mat;
     Ray ray;
 };
 
-const int RAY_BOUNCE_LIMIT = 4;
-int RAY_SAMPLES = 6;
+const int RAY_BOUNCE_LIMIT = 3;
+int RAY_SAMPLES = 3;
 
 
 
@@ -84,9 +130,29 @@ Sphere spheres[MAX_SPHERES];
 AABB aabbs[MAX_SPHERES];
 Material materials[MAX_MATERIALS];
 
+
+const int numOfMeshes = 1;
+Mesh meshes[numOfMeshes];
+
 const float epsilon = 0.05;
 const float PI = 3.14159265359;
 const float invPI = 1.0 / PI;
+
+vec3 getVertex(int index) {
+    float u = mod(float(index), float(VBOwidth));
+    float v = floor(float(index) / float(VBOwidth));
+    u = u / float(VBOwidth);
+    v = v / float(VBOwidth);
+    return texture(vertexBuffer, vec2(u, v)).xyz;
+}
+
+ivec3 getFace(int index) {
+    float u = mod(float(index), float(EBOwidth));
+    float v = floor(float(index) / float(EBOwidth));
+    u = u / float(EBOwidth);
+    v = v / float(EBOwidth);
+    return ivec3(texture(indexBuffer, vec2(u, v)).xyz);
+}
 
 
 uint baseHash(uvec2 p)
@@ -153,6 +219,20 @@ Sphere unpackSphere(int index) {
     return Sphere(center, radius, materialIndex);
 }
 
+Mesh unpackMesh(int index) {
+    int offset = index * meshDatum;
+    vec3 position = vec3(meshdata[offset], meshdata[offset + 1], meshdata[offset + 2]);
+    int materialIndex = int(meshdata[offset + 3]);
+    int vertexStart = int(meshdata[offset + 4]);
+    int facesStart = int(meshdata[offset + 5]);
+    int numVertices = int(meshdata[offset + 6]);
+    int numFaces = int(meshdata[offset + 7]);
+    vec3 minp = vec3(meshdata[offset + 8], meshdata[offset + 9], meshdata[offset + 10]);
+    vec3 maxp = vec3(meshdata[offset + 11], meshdata[offset + 12], meshdata[offset + 13]);
+    return Mesh(position, materialIndex, vertexStart, facesStart, numVertices, numFaces, minp, maxp);
+}
+
+
 
 
 // Material structure
@@ -173,14 +253,122 @@ AABB unpackAABB(int index) {
     return AABB(minp, maxp, materialIndex);
 }
 
-// // Polygon Intersection
-// float intersectTriangle(vec3 A, vec3 B, vec3 C, Ray ray) {
-//     vec3 AB = B - A;
-//     vec3 AC = C - A;
-//     vec3 N = cross(AB, AC);
+// Polygon Intersection
+vec3 triangleNormal(vec3 v0, vec3 v1, vec3 v2) {
+    return normalize(cross(v1 - v0, v2 - v0));
+}
+
+float intersectTriangle(vec3 A, vec3 B, vec3 C, Ray ray, inout vec3 weights) {
+
+  vec3 AB = B - A;
+  vec3 AC = C - A;
+
+  vec3 N = normalize(cross(AB, AC));
+
+  // dot(A, N) , gives us how for along the normal we travel  until we reach the plane
+  
+
+  // given a point P on the plane, and the point that the normal intersects, P_0
+  // we have that the vector from P to P_0
+  // T = (P_0 - P)
+
+  // in order for P to be on the plane, it must be the case that T , is perpindicular to the plane
+
+  // for something to be perpindcicular, we must have that the the dot product, with then normal is 0
+
+  // dot(T, N) = 0
+
+  // for us, we want P to be some where on the rays line
+  // so our point P  is P = r.o + t * r.d
+
+  // where t is the parameterized distance from theray origin in the rays direction
+
+  // T = (p_0 - (r.o + t * r.d) = (A - (r.o + t * r.d)
+
+  // 0 = N o T 
+  // 0 = N o (A - (r.o + t * r.d)
+  // 0 = (NoA) - (No(r.o)) - (N o (t*r.d)
+  // 0 = (NoA) - (No(r.o)) - (t*(N o r.d))
+  // - (NoA) + (No(r.o)) = -(t*(N o r.d))
+  // (NoA) - (No(r.o)) = -(t*(N o r.d))
+  // [ No(A - r.o) ] / (N o r.d) = t
+  float NoD = dot(N, ray.direction);
+  if (abs(NoD) < 0.0001) return -1.0;
+  float NoRA = dot(N, A - ray.origin);
+  float t = NoRA / NoD;
+
+  // now lets get point P
+  vec3 P = ray.origin + ray.direction * t;
+
+  // we need to check if P is inside the triangle
+
+  // we can write P as some weighted  combination of the three vertices in the triangle
+  // P = u * A + v * B + w * C
+  // This can be written as a matrix equation
+  // where we have the vertices as rows in a matrix, and the weights as a column vector
+  // [ A B C ] * [ u v w ] = P
+  // A = [ A B C ]
+  // x = [ u v w ]
+  // P = A * x
+  // x = P * A^-1
+  // |x| = 1
+  // |P * A^-1| = 1
+
+  // another way to look at the weighting, is to use the area of the sub triangles
+  // given a point inside our triangle
+  // we can connect this point to our triangles vertices
+  // this will give use three sub triangles
+  // Notice, that if our point is very close to vertex B, then the area of the sub triangle which does not contain B will be large
+  // if P is on B, then our sub triangle will have area equal to the whole triangle, or 100% of the area
+  // also not that if P is on the lin connecting A and C, then the area of the sub triangle will be 0
+
+  // it is the case that the area of the sub triangle is proportional to the distance from the vertex
+
+  // so if we get the area of all sub triangles, and divide by the area of the whole triangle, we will get the weights
+  // this means we have
+  // ABC (whole triangle
+  // ABP (C, sub triangle)
+  // BCP (A, sub triangle)
+  // CAP (B, sub triangle)
+  // notice that the corresponding sub triangle is the one that does not contain the vertex
+
+  // the the triangle formed by two vectors
+  // spans the parallelogram formed by the two vectors
+  // that means the area of the triangle is half the area of the parallelogram
+  // the area of the parallelogram is given by the cross product of the two vectors, (which is the definition of the cross product)
+  // so the area of the triangle is half the magnitude of the cross product of the two vectors
+  vec3 AP = P - A;
+  vec3 BP = P - B;
+  vec3 CP = P - C;
+  // vec3 AB = B - A;
+  vec3 BC = C - B;
+  vec3 CA = A - C;
+
+  vec3 ABC = cross(AB, AC);
+  vec3 ABP = cross(AB, AP);
+  if (dot(N, ABP) < 0.0) return -1.0;
+  vec3 BCP = cross(BC, BP);
+  if (dot(N, BCP) < 0.0) return -1.0;
+  vec3 CAP = cross(CA, CP);
+  if (dot(N, CAP) < 0.0) return -1.0;
+
+  float areaABC = length(ABC);
+  float invAreaABC = 1.0 / areaABC;
+  float areaABP = length(ABP);
+  float areaBCP = length(BCP);
+  float areaCAP = length(CAP);
+  weights = vec3(areaBCP, areaCAP, areaABP) * invAreaABC;
 
 
-// }
+
+
+
+  return t;
+}
+
+
+
+
 
 
 // AABB intersection
@@ -223,7 +411,9 @@ vec3 aabbNormal(AABB aabb, vec3 intersectionPoint) {
 }
 
 
-float intersectAABB(vec3 minp, vec3 maxp, Ray ray) {
+Hit intersectAABB(Ray ray, AABB aabb) {
+    vec3 minp = aabb.minp;
+    vec3 maxp = aabb.maxp;
   // normalize the ray direction
     ray.direction = normalize(ray.direction);
     vec3 invDir = 1.0 / (ray.direction + 0.0000000001);
@@ -233,55 +423,154 @@ float intersectAABB(vec3 minp, vec3 maxp, Ray ray) {
     vec3 AABBmax = max(LB, UB);
     float tmin = minC(AABBmax);
     float tmax = maxC(AABBmin);
-    if (tmax < 0.0 || tmin < tmax) return -1.0;
-    return tmax;
+    float t;
+    if (tmax < 0.0 || tmin < tmax) {
+      t = -1.0;
+    } else {
+      t = tmax;
+    }
+
+
+    Hit hit;
+    hit.t = t;
+    hit.p = ray.origin + ray.direction * hit.t;
+    hit.n = aabbNormal(aabb, hit.p);
+    hit.mat = materials[aabb.materialIndex];
+    hit.object = 0;
+    hit.type = 1;
+    hit.ray = ray;
+    return hit;
 }
 
 
 // Intersect ray with a sphere, return distance, -1 if no hit
-float intersectSphere(Ray ray, Sphere sphere) {
+Hit intersectSphere(Ray ray, Sphere sphere) {
     vec3 oc = ray.origin - sphere.center;
     float b = dot(oc, ray.direction);
     float c = dot(oc, oc) - sphere.radius * sphere.radius;
     float h = b * b - c;
-    if (h < 0.0) return -1.0; // No intersection
-    return -b - sqrt(h);
+    float t;
+    if (h < 0.0) {
+      t = -1.0;
+    } else {
+      t = -b - sqrt(h);
+    }
+
+
+    Hit hit;
+    hit.t = t;
+    hit.p = ray.origin + ray.direction * hit.t;
+    hit.n = normalize(hit.p - sphere.center);
+    hit.mat = materials[sphere.materialIndex];
+    hit.object = 0;
+    hit.type = 0;
+    hit.ray = ray;
+    return hit;
+}
+
+
+
+
+Hit intersectMesh(Ray ray, Mesh mesh) {
+
+   
+
+    Hit hit;
+    hit.t = 99999999.0;
+    hit.object = -1;
+
+    // before checking the faces, we need to check if the ray intersects the aabb
+    AABB hitbox = AABB(mesh.minp + mesh.position, mesh.maxp + mesh.position, mesh.materialIndex);
+    Hit aabbHit = intersectAABB(ray, hitbox);
+    if (aabbHit.t < 0.0) {
+        return hit;
+    }
+
+
+    for (int j = 0; j < mesh.numFaces; ++j) {
+        // ivec3 face = mesh.faces[j];
+        ivec3 face = getFace(mesh.facesStart + j);
+        // vec3 A = VERTICES[face.x];
+        // vec3 B = VERTICES[face.y];
+        // vec3 C = VERTICES[face.z];
+        vec3 A = getVertex(mesh.vertexStart + face.x);
+        vec3 B = getVertex(mesh.vertexStart + face.y);
+        vec3 C = getVertex(mesh.vertexStart + face.z);
+        // add position
+        A += mesh.position;
+        B += mesh.position;
+        C += mesh.position;
+        vec3 weights = vec3(0.0, 0.0, 0.0);
+        float t = intersectTriangle(A, B, C, ray, weights);
+        if (t > 0.00001 && t < hit.t) {
+            hit.t = t;
+            hit.p = ray.origin + ray.direction * hit.t;
+            hit.n = triangleNormal(A, B, C);
+            hit.mat = materials[mesh.materialIndex];
+            // if the normal is facing the same direction as the ray, then we flip it
+            if (dot(hit.n, ray.direction) > 0.0) {
+                hit.n = -hit.n;
+            }
+
+            // change the mat diffuse color based on the weights
+            // we want to make it so that the edges are black
+            // to do this using the weights, what we do, is if one weights is less than 0.1, then we make the color black
+            float threshold = 0.01;
+            hit.mat.color = vec3(1.0, 1.0, 1.0);
+            if (weights.x < threshold) {
+                hit.mat.color = vec3(0.0, 0.0, 1.0);
+                hit.mat.emission = vec3(0.0, 0.0, 1.0);
+            }
+            if (weights.y < threshold) {
+                hit.mat.color = vec3(1.0, 0.0, 0.0);
+                hit.mat.emission = vec3(1.0, 0.0, 0.0);
+            }
+            if (weights.z < threshold) {
+                hit.mat.color = vec3(0.0, 1.0, 0.0);
+                hit.mat.emission = vec3(0.0, 1.0, 0.0);
+            }
+            hit.object = 0;
+            hit.type = 2;
+        }
+    }
+
+    if (hit.object == -1) {
+      hit.t = -1.0;
+    }
+    return hit;
 }
 
 Hit getIntersection(Ray ray, int prevSphere) {
-    float minT = 99999.0;
     // intersect spheres
     Hit hit;
+    hit.t = 999999.0;
     hit.object = -1;
-    int hitType = -1;
     for (int i = 0; i < numSpheres; ++i) {
-        float t = intersectSphere(ray, spheres[i]);
-        if (t > 0.0 && t < minT) {
-            minT = t;
+        Hit newHit = intersectSphere(ray, spheres[i]);
+        if (newHit.t > 0.0 && newHit.t < hit.t) {
+            hit = newHit;
             hit.object = i;
-            hitType = 0;
-        }
-    }
-    // intersect aabbs
-    for (int i = 0; i < numAABBs; ++i) {
-        float t = intersectAABB(aabbs[i].minp, aabbs[i].maxp, ray);
-        if (t > 0.0 && t < minT) {
-            minT = t;
-            hit.object = i;
-            hitType = 1;
         }
     }
 
-    if (hit.object == -1) return hit;
-    hit.t = minT;
-    hit.p = ray.origin + ray.direction * hit.t;
-    if (hitType == 0) {
-        hit.n = normalize(hit.p - spheres[hit.object].center);
-        hit.mat = materials[spheres[hit.object].materialIndex];
-    } else {
-        hit.n = aabbNormal(aabbs[hit.object], hit.p);
-        hit.mat = materials[aabbs[hit.object].materialIndex];
+    // intersect aabbs
+    for (int i = 0; i < numAABBs; ++i) {
+        Hit newHit = intersectAABB(ray, aabbs[i]);
+        if (newHit.t > 0.0 && newHit.t < hit.t) {
+            hit = newHit;
+            hit.object = i;
+        }
     }
+  
+    for (int i = 0; i < numOfMeshes; ++i) {
+        Hit newHit = intersectMesh(ray, meshes[i]);
+        if (newHit.t > 0.0 && newHit.t < hit.t) {
+            hit = newHit;
+            hit.object = i;
+        }
+    }
+
+
     return hit;
 }
 
@@ -318,6 +607,11 @@ float G_smith(vec3 n, vec3 v, vec3 l, float alpha) {
 
 
 vec3 sampleOutRay(Ray r_i, Hit hit, inout vec3 T) {
+
+    // vec3 diffuse = normalize(randomInUnitHemisphere(gSeed, hit.n));
+    // T = T * hit.mat.color;
+
+    // return diffuse;
 
     float diceRoll = hash1(gSeed);
     float diceRoll2 = hash1(gSeed);// I DONT KNOW WHY BUT THESE NEED TO HAPPEN BEFORE THE BRANCHING, otherwise things dont stay random
@@ -423,8 +717,8 @@ void missedHit(Ray ray, inout vec3 T, inout vec3 L, int depth) {
         // coonvert to hsv, and bring the luminance up by taking it to a power
         // then convert back to rgb
         vec3 hsv = rgbToHSV(backgroundColor);
-        hsv.z *= 1.3;
-        hsv.z = pow(hsv.z, 1.5);
+        // hsv.z *= 1.3;
+        // hsv.z = pow(hsv.z, 3.5);
         backgroundColor = hsvToRGB(hsv);
 
         // divide by the largest value in the texture to normalize
@@ -442,7 +736,7 @@ void accumulate(inout vec3 T, inout vec3 L, inout Ray ray, Hit hit, inout int pr
     
     // if (length(hit.mat.emission) > 0.5) { return; }
     ray.direction = sampleOutRay(ray, hit, T);
-    ray.origin = hit.p + ray.direction * 0.00001;
+    ray.origin = hit.p + ray.direction * 0.1;
     prevSphere = hit.object;
 
     return;
@@ -469,7 +763,7 @@ Ray startRay(in vec2 uv) {
     vec3 camUp = vec3(0.0, 1.0, 0.0);
     vec3 camRight = normalize(cross(camFront, camUp));
     vec3 startDir = normalize(vec3(uv.x * viewportWidth * camRight + uv.y * viewportHeight * camUp + focalLength * camFront));
-    startDir = normalize(startDir + randomCosineInUnitSphere(gSeed) *0.00001);
+    startDir = normalize(startDir + randomCosineInUnitSphere(gSeed) *0.001);
     return Ray(camPos, startDir);
 }
 
@@ -477,13 +771,15 @@ vec3 samplePixel(Ray ray) {
     int prevSphere = -1;
     vec3 T = vec3(1.0, 1.0, 1.0);
     vec3 L = vec3(0.0, 0.0, 0.0);
+    vec3 color = vec3(0.0, 0.0, 0.0);
     for (int i = 0; i < RAY_BOUNCE_LIMIT; ++i) {
       Hit hit = getIntersection(ray, prevSphere);
-      // return (vec3(hit.n) + 1.0) * 0.5;
       if (hit.object == -1) { missedHit(ray, T, L, i); break; }
+      
       L += T * hit.mat.emission;
       if (length(hit.mat.emission) > 0.5) { break; } // if hit light source, return light source color
       accumulate(T, L, ray, hit, prevSphere, i);
+      color = hit.mat.color;
     }
     return L;
 }
@@ -491,7 +787,17 @@ vec3 samplePixel(Ray ray) {
 vec3 getPixelColor(vec2 uv) {
   vec3 pixelColor = vec3(0.0);
   float sampleContribution = 1.0 / float(RAY_SAMPLES);
-  Ray ray = startRay(uv);
+  // uv = fract(uv * 2.0);
+  // Ray ray = startRay(fract(uv * 2.0));
+  // vec2 uvNormalized = (uv + 1) ;
+  // uvNormalized = fract(uvNormalized);
+  // vec2 fractedShiftedUv = uvNormalized - 1.0;
+  vec2 fragpos = (gl_FragCoord.xy * FRACTED_SAMPLES);
+  fragpos.x = int(fragpos.x) % texHeight;
+  fragpos.y = int(fragpos.y) % texHeight;
+  vec2 uv_frac = ((fragpos) - (0.5 * vec2(texWidth, texHeight))) / texHeight;
+  Ray ray = startRay(uv_frac);
+  // Ray ray = startRay(uv);
   for (int s=0; s<RAY_SAMPLES; s++) {
       pixelColor += samplePixel(ray);
   }
@@ -509,8 +815,31 @@ vec3 getPixelColor(vec2 uv) {
 
 void main()
 {   
-    vec2 uv = (gl_FragCoord.xy - 0.5 * vec2(texWidth, texHeight)) / texHeight;
+
+    vec2 uv = (gl_FragCoord.xy - (0.5 * vec2(texWidth, texHeight))) / texHeight;
+
+    // Mesh testMesh = getTestTriangle();
+    // Mesh testMesh = getBoxMesh();
+    // Mesh testMesh = getTetraHedronMesh();
+    // Mesh testMesh = getOctaHedron();
+    // Mesh testMesh = getDodecahedronMesh();
+
+    // Mesh testMesh;
+    // //triangle test mesh
+    // testMesh.numVertices = 3;
+    // testMesh.numFaces = 1;
+    // testMesh.materialIndex = 0;
+    // testMesh.vertexStart = 0;
+    // testMesh.facesStart = 0;
+
+
+    // meshes[0] = testMesh;
     
+    // we want to render multiple passes at once
+    // to do this , we will render the same scene multiple times, on the same frame
+    // this will look like having for example, 4 copies of the same scene on the same frame
+    // to do this we will modify the uv coordinates
+
     genSeed(gSeed);
 
     for (int i = 0; i < numSpheres; ++i) {
@@ -525,9 +854,59 @@ void main()
         aabbs[i] = unpackAABB(i);
     }
 
+    for (int i = 0; i < numOfMeshes; ++i) {
+        meshes[i] = unpackMesh(i);
+    }
+
 
 
     vec3 pixelColor = getPixelColor(uv);
     DataBuffer = vec4(vec3(gSeed), 1.0);
     FragColor = vec4(pixelColor, 1.0);
+
+    // test accessing the first vertex of the vertex buffer
+    // use the vertex as the color
+    // vec3 color = getVertex(1);
+    // FragColor = vec4(color, 1.0);
+
+    // to test the faces, we will use the first face as the color
+    // ivec3 face = getFace(0);
+    // vec3 color = vec3(face);
+    // FragColor = vec4(color, 1.0);
+
+    // for debug purposes display the vertices in the vertex buffer to the screen
+    // we want to use the frags uv position to index into the vertex buffer
+    // we want to scale to fit the screen based on the number of vertices
+    // vec3 color = getVertex(int(gl_FragCoord.x / 20.0));
+    // FragColor = vec4(color, 1.0);
+
+    // for debug purposes display the faces in the face buffer to the screen
+    // we want to use the frags uv position to index into the face buffer
+    // we want to scale to fit the screen based on the number of faces
+    // there are 12 faces, we we want to get our uv coord between 0 and 12
+    // float u = gl_FragCoord.x / texWidth;
+    // float v = gl_FragCoord.y / texHeight;
+    // ivec3 face = getFace(int(u * 12.0));
+    // vec3 index = texture(indexBuffer, vec2(u, v)).xyz;
+
+    float face_num = (gl_FragCoord.x / texWidth) * 36.0;
+    float u = mod(face_num, EBOwidth);
+    float v = floor(face_num / EBOwidth);
+    // vec3 face = texture(indexBuffer, vec2(u / EBOwidth, v / EBOwidth)).xyz;
+    vec3 face = getFace(int(face_num));
+
+
+
+
+
+
+
+    // convet to vec3
+    // vec3 color = vec3(u / 12.0, v / 12.0, 0.0);
+    vec3 color = vec3(face);
+    // vec3 color = vec3(u);
+    // divide by the number of vertices (8)
+    color /= 107.0;
+    // FragColor = vec4(color, 1.0);
+
 }
