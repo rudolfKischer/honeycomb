@@ -10,7 +10,6 @@
 
 # TODO
 
-- Triangle intersections
 - Add traversal Accleration Data structures
   - BVH
   - Oct Trees
